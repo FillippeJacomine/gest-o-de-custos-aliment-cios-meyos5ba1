@@ -7,6 +7,7 @@ const routeNames: Record<string, string> = {
   '/ingredients': 'Gestão de Insumos',
   '/recipes': 'Fichas Técnicas',
   '/pricing': 'Precificação Omnichannel',
+  '/reports': 'Relatórios Gerenciais',
 }
 
 export function Header() {
@@ -17,7 +18,6 @@ export function Header() {
     <header className="bg-white border-b sticky top-0 z-40 px-4 md:px-8 py-4 flex items-center justify-between">
       <h2 className="text-xl font-bold text-slate-800 hidden md:block">{title}</h2>
 
-      {/* Mobile Title */}
       <div className="md:hidden flex items-center gap-2">
         <h2 className="text-lg font-bold text-slate-800">{title}</h2>
       </div>

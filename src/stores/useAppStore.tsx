@@ -20,12 +20,41 @@ export type Recipe = {
   items: RecipeItem[]
 }
 
+export type OCRResultItem = {
+  id: string
+  rawName: string
+  qty: number
+  unitPrice: number
+  totalPrice: number
+  uom: string
+}
+
+export type Sale = {
+  id: string
+  recipeId: string
+  channel: string
+  quantity: number
+  revenue: number
+}
+
+export type FixedCosts = {
+  rent: number
+  energy: number
+  gas: number
+  labor: number
+}
+
 type StoreContextType = {
   ingredients: Ingredient[]
   recipes: Recipe[]
+  sales: Sale[]
+  fixedCosts: FixedCosts
   updateIngredientPrice: (id: string, newCost: number) => void
   getRecipeCost: (recipe: Recipe) => number
-  simulateOCR: () => Promise<void>
+  simulateOCR: () => Promise<OCRResultItem[]>
+  commitOCRData: (updates: { ingredientId: string; newCost: number }[]) => void
+  addSale: (sale: Omit<Sale, 'id'>) => void
+  updateFixedCosts: (costs: Partial<FixedCosts>) => void
 }
 
 const initialIngredients: Ingredient[] = [
@@ -107,11 +136,25 @@ const initialRecipes: Recipe[] = [
   },
 ]
 
+const initialSales: Sale[] = [
+  { id: 's1', recipeId: '1', channel: 'LOCAL', quantity: 150, revenue: 2250 },
+  { id: 's2', recipeId: '1', channel: 'IFOOD_DELIVERY', quantity: 80, revenue: 1600 },
+  { id: 's3', recipeId: '2', channel: 'LOCAL', quantity: 45, revenue: 540 },
+  { id: 's4', recipeId: '2', channel: 'IFOOD_BASIC', quantity: 30, revenue: 420 },
+]
+
 const AppContext = createContext<StoreContextType | null>(null)
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients)
   const [recipes] = useState<Recipe[]>(initialRecipes)
+  const [sales, setSales] = useState<Sale[]>(initialSales)
+  const [fixedCosts, setFixedCosts] = useState<FixedCosts>({
+    rent: 1200,
+    energy: 350,
+    gas: 150,
+    labor: 2000,
+  })
 
   const updateIngredientPrice = (id: string, newCost: number) => {
     setIngredients((prev) =>
@@ -130,13 +173,45 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const simulateOCR = async () => {
-    return new Promise<void>((resolve) => {
+    return new Promise<OCRResultItem[]>((resolve) => {
       setTimeout(() => {
-        updateIngredientPrice('3', 38.5) // Simulate Chocolate price increase
-        updateIngredientPrice('1', 4.8) // Simulate Flour price increase
-        resolve()
+        resolve([
+          {
+            id: 'ocr1',
+            rawName: 'CHOCOLATE 50% CACAU 1KG',
+            qty: 2,
+            unitPrice: 38.5,
+            totalPrice: 77.0,
+            uom: 'kg',
+          },
+          {
+            id: 'ocr2',
+            rawName: 'FARINHA DE TRIGO 5KG',
+            qty: 1,
+            unitPrice: 24.0,
+            totalPrice: 24.0,
+            uom: 'un',
+          },
+        ])
       }, 1500)
     })
+  }
+
+  const commitOCRData = (updates: { ingredientId: string; newCost: number }[]) => {
+    setIngredients((prev) =>
+      prev.map((ing) => {
+        const update = updates.find((u) => u.ingredientId === ing.id)
+        if (update) {
+          return {
+            ...ing,
+            cost: update.newCost,
+            lastUpdated: new Date().toISOString().split('T')[0],
+            history: [...ing.history, update.newCost].slice(-6),
+          }
+        }
+        return ing
+      }),
+    )
   }
 
   const getRecipeCost = useMemo(
@@ -151,9 +226,28 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     [ingredients],
   )
 
+  const addSale = (sale: Omit<Sale, 'id'>) => {
+    setSales((prev) => [...prev, { ...sale, id: Math.random().toString(36).substr(2, 9) }])
+  }
+
+  const updateFixedCosts = (costs: Partial<FixedCosts>) => {
+    setFixedCosts((prev) => ({ ...prev, ...costs }))
+  }
+
   return (
     <AppContext.Provider
-      value={{ ingredients, recipes, updateIngredientPrice, getRecipeCost, simulateOCR }}
+      value={{
+        ingredients,
+        recipes,
+        sales,
+        fixedCosts,
+        updateIngredientPrice,
+        getRecipeCost,
+        simulateOCR,
+        commitOCRData,
+        addSale,
+        updateFixedCosts,
+      }}
     >
       {children}
     </AppContext.Provider>

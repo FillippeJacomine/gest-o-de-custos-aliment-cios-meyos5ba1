@@ -7,6 +7,7 @@ import Index from '@/pages/Index'
 import Ingredients from '@/pages/Ingredients'
 import Recipes from '@/pages/Recipes'
 import Pricing from '@/pages/Pricing'
+import Reports from '@/pages/Reports'
 import NotFound from '@/pages/NotFound'
 import { AppProvider } from '@/stores/useAppStore'
 
@@ -22,6 +23,7 @@ const App = () => (
             <Route path="/ingredients" element={<Ingredients />} />
             <Route path="/recipes" element={<Recipes />} />
             <Route path="/pricing" element={<Pricing />} />
+            <Route path="/reports" element={<Reports />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -1,5 +1,12 @@
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, ShoppingBasket, ChefHat, Calculator, Settings } from 'lucide-react'
+import {
+  LayoutDashboard,
+  ShoppingBasket,
+  ChefHat,
+  Calculator,
+  Settings,
+  BarChart3,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -7,6 +14,7 @@ const navItems = [
   { path: '/ingredients', label: 'Insumos', icon: ShoppingBasket },
   { path: '/recipes', label: 'Receitas', icon: ChefHat },
   { path: '/pricing', label: 'Precificação', icon: Calculator },
+  { path: '/reports', label: 'Relatórios', icon: BarChart3 },
 ]
 
 export function Sidebar() {
