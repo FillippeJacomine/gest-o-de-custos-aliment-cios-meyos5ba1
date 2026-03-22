@@ -1,13 +1,21 @@
 import { useAppStore } from '@/stores/useAppStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatCurrency, formatPercent } from '@/lib/format'
-import { TrendingUp, AlertCircle, FileText, ArrowRight, Award, Box } from 'lucide-react'
+import {
+  TrendingUp,
+  AlertCircle,
+  FileText,
+  ArrowRight,
+  Award,
+  Box,
+  AlertTriangle,
+} from 'lucide-react'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { Link } from 'react-router-dom'
 
 export default function Index() {
-  const { recipes, sales, getRecipeCost } = useAppStore()
+  const { recipes, sales, ingredients, getRecipeCost } = useAppStore()
 
   const salesStats = recipes.map((r) => {
     const rSales = sales.filter((s) => s.recipeId === r.id)
@@ -35,6 +43,12 @@ export default function Index() {
   ]
   const COLORS = ['hsl(var(--primary))', 'hsl(var(--secondary))', 'hsl(var(--chart-3))']
 
+  // Alertas
+  const priceAlerts = ingredients.filter(
+    (i) => i.history.length > 1 && i.cost > i.history[i.history.length - 2] * 1.1,
+  ).length
+  const stockAlerts = ingredients.filter((i) => i.stock <= i.minStock).length
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -51,12 +65,28 @@ export default function Index() {
 
         <Card className="animate-fade-in-up" style={{ animationDelay: '100ms' }}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-slate-500">Alertas de Custo</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-500">
+              Alertas Operacionais
+            </CardTitle>
             <AlertCircle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-800">2</div>
-            <p className="text-xs text-amber-600 mt-1">Insumos subiram &gt; 10%</p>
+            <div className="text-2xl font-bold text-slate-800">{priceAlerts + stockAlerts}</div>
+            <div className="flex gap-2 mt-1">
+              {priceAlerts > 0 && (
+                <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
+                  {priceAlerts} custos em alta
+                </span>
+              )}
+              {stockAlerts > 0 && (
+                <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                  {stockAlerts} estoques baixos
+                </span>
+              )}
+              {priceAlerts === 0 && stockAlerts === 0 && (
+                <span className="text-xs text-slate-500">Tudo normal</span>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -72,17 +102,18 @@ export default function Index() {
         </Card>
 
         <Card
-          className="bg-primary text-white animate-fade-in-up hover:shadow-md transition-shadow cursor-pointer"
+          className="bg-primary text-white animate-fade-in-up hover:shadow-md transition-shadow cursor-pointer relative overflow-hidden"
           style={{ animationDelay: '300ms' }}
         >
-          <Link to="/reports" className="block h-full">
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 bg-white/10 rounded-full blur-xl"></div>
+          <Link to="/simulator" className="block h-full relative z-10">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-white/80">Desempenho</CardTitle>
+              <CardTitle className="text-sm font-medium text-white/90">Simular Cenários</CardTitle>
               <ArrowRight className="h-4 w-4 text-white" />
             </CardHeader>
             <CardContent>
-              <div className="text-lg font-semibold mt-2">Ver Relatórios</div>
-              <p className="text-xs text-white/80 mt-1">Matriz BCG e Custos</p>
+              <div className="text-lg font-semibold mt-2 leading-tight">What If</div>
+              <p className="text-xs text-white/80 mt-1">Antecipe aumentos de custo</p>
             </CardContent>
           </Link>
         </Card>

@@ -6,6 +6,7 @@ import {
   Calculator,
   Settings,
   BarChart3,
+  Lightbulb,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -15,6 +16,7 @@ const navItems = [
   { path: '/recipes', label: 'Receitas', icon: ChefHat },
   { path: '/pricing', label: 'Precificação', icon: Calculator },
   { path: '/reports', label: 'Relatórios', icon: BarChart3 },
+  { path: '/simulator', label: 'Simulador', icon: Lightbulb },
 ]
 
 export function Sidebar() {
@@ -61,7 +63,7 @@ export function BottomNav() {
   const location = useLocation()
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-2 z-50 shadow-[0_-4px_20px_rgba(0,0,0,0.05)] overflow-x-auto">
       {navItems.map((item) => {
         const isActive = location.pathname === item.path
         const Icon = item.icon
@@ -70,14 +72,14 @@ export function BottomNav() {
             key={item.path}
             to={item.path}
             className={cn(
-              'flex flex-col items-center p-2 rounded-xl text-slate-500 transition-colors',
+              'flex flex-col items-center p-2 rounded-xl text-slate-500 transition-colors min-w-[64px]',
               isActive && 'text-primary',
             )}
           >
             <div className={cn('p-1.5 rounded-full transition-colors', isActive && 'bg-teal-50')}>
-              <Icon className="h-6 w-6" />
+              <Icon className="h-5 w-5" />
             </div>
-            <span className="text-[10px] font-medium mt-1">{item.label}</span>
+            <span className="text-[10px] font-medium mt-1 truncate">{item.label}</span>
           </Link>
         )
       })}

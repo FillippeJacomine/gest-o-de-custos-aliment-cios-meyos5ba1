@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useAppStore, Ingredient, OCRResultItem } from '@/stores/useAppStore'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { exportToCSV } from '@/lib/export'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
@@ -32,15 +33,34 @@ import {
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
-import { ScanLine, Search, Loader2, LineChart as LineChartIcon, Download } from 'lucide-react'
+import {
+  ScanLine,
+  Search,
+  Loader2,
+  LineChart as LineChartIcon,
+  Download,
+  AlertTriangle,
+  Plus,
+  Minus,
+} from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
+import { cn } from '@/lib/utils'
 
 export default function Ingredients() {
-  const { ingredients, simulateOCR, commitOCRData } = useAppStore()
+  const { ingredients, simulateOCR, commitOCRData, updateIngredientStock } = useAppStore()
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [isScanning, setIsScanning] = useState(false)
   const [selectedIngredient, setSelectedIngredient] = useState<Ingredient | null>(null)
+
+  const [adjustStockDialog, setAdjustStockDialog] = useState<{
+    open: boolean
+    ingredient: Ingredient | null
+  }>({
+    open: false,
+    ingredient: null,
+  })
+  const [stockAdjustment, setStockAdjustment] = useState<number>(0)
 
   const [ocrResults, setOcrResults] = useState<OCRResultItem[]>([])
   const [isReviewOpen, setIsReviewOpen] = useState(false)
@@ -74,27 +94,57 @@ export default function Ingredients() {
       .map((res) => {
         const mapping = ocrMapping[res.id]
         if (mapping && mapping.ingredientId) {
-          const newCost = res.unitPrice / (mapping.factor || 1)
-          return { ingredientId: mapping.ingredientId, newCost }
+          const factor = mapping.factor || 1
+          const newCost = res.unitPrice / factor
+          const addedStock = res.qty * factor
+          return { ingredientId: mapping.ingredientId, newCost, addedStock }
         }
         return null
       })
-      .filter(Boolean) as { ingredientId: string; newCost: number }[]
+      .filter(Boolean) as { ingredientId: string; newCost: number; addedStock: number }[]
 
     commitOCRData(updates)
     setIsReviewOpen(false)
     toast({
-      title: 'Custos Atualizados',
-      description: `${updates.length} insumos foram atualizados com sucesso.`,
+      title: 'Custos e Estoque Atualizados',
+      description: `${updates.length} insumos foram atualizados com sucesso via NF-e.`,
     })
   }
 
   const handleExport = () => {
     exportToCSV(
       'insumos',
-      ['Nome', 'Categoria', 'Custo Atual', 'Unidade', 'Última Atualização'],
-      ingredients.map((i) => [i.name, i.category, i.cost, i.unit, i.lastUpdated]),
+      [
+        'Nome',
+        'Categoria',
+        'Custo Atual',
+        'Estoque',
+        'Min Estoque',
+        'Unidade',
+        'Última Atualização',
+      ],
+      ingredients.map((i) => [
+        i.name,
+        i.category,
+        i.cost,
+        i.stock,
+        i.minStock,
+        i.unit,
+        i.lastUpdated,
+      ]),
     )
+  }
+
+  const handleAdjustStock = () => {
+    if (adjustStockDialog.ingredient && stockAdjustment !== 0) {
+      updateIngredientStock(adjustStockDialog.ingredient.id, stockAdjustment)
+      toast({
+        title: 'Estoque Ajustado',
+        description: `${adjustStockDialog.ingredient.name} atualizado com sucesso.`,
+      })
+      setAdjustStockDialog({ open: false, ingredient: null })
+      setStockAdjustment(0)
+    }
   }
 
   const filteredIngredients = ingredients.filter((i) =>
@@ -107,8 +157,10 @@ export default function Ingredients() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Insumos</h1>
-          <p className="text-slate-500 text-sm">Gerencie seus ingredientes e custos base.</p>
+          <h1 className="text-2xl font-bold text-slate-800">Insumos & Estoque</h1>
+          <p className="text-slate-500 text-sm">
+            Gerencie seus ingredientes, custos e níveis de estoque.
+          </p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
           <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto shadow-sm">
@@ -142,28 +194,39 @@ export default function Ingredients() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Categoria</TableHead>
                 <TableHead className="text-right">Custo Atual</TableHead>
+                <TableHead className="text-right">Estoque</TableHead>
                 <TableHead className="text-center">Unidade</TableHead>
-                <TableHead className="text-right">Última Atualização</TableHead>
-                <TableHead></TableHead>
+                <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredIngredients.map((ing) => {
-                const isAlert =
+                const isPriceAlert =
                   ing.history.length > 1 && ing.cost > ing.history[ing.history.length - 2] * 1.1
+                const isStockAlert = ing.stock <= ing.minStock
+
                 return (
-                  <TableRow
-                    key={ing.id}
-                    className="cursor-pointer hover:bg-slate-50"
-                    onClick={() => setSelectedIngredient(ing)}
-                  >
-                    <TableCell className="font-medium">
-                      {ing.name}
-                      {isAlert && (
-                        <Badge variant="destructive" className="ml-2 text-[10px]">
-                          Alta
-                        </Badge>
-                      )}
+                  <TableRow key={ing.id} className="hover:bg-slate-50">
+                    <TableCell
+                      className="font-medium cursor-pointer"
+                      onClick={() => setSelectedIngredient(ing)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {ing.name}
+                        {isPriceAlert && (
+                          <Badge variant="destructive" className="text-[10px]">
+                            Preço Alta
+                          </Badge>
+                        )}
+                        {isStockAlert && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-amber-600 border-amber-300 bg-amber-50"
+                          >
+                            <AlertTriangle className="h-3 w-3 mr-1" /> Estoque Baixo
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="bg-white">
@@ -173,18 +236,44 @@ export default function Ingredients() {
                     <TableCell className="text-right font-mono font-semibold text-slate-700">
                       {formatCurrency(ing.cost)}
                     </TableCell>
-                    <TableCell className="text-center text-slate-500">{ing.unit}</TableCell>
-                    <TableCell className="text-right text-slate-500 text-sm">
-                      {formatDate(ing.lastUpdated)}
+                    <TableCell className="text-right">
+                      <div className="flex flex-col items-end">
+                        <span
+                          className={cn(
+                            'font-mono font-bold',
+                            isStockAlert ? 'text-amber-600' : 'text-slate-700',
+                          )}
+                        >
+                          {ing.stock.toFixed(2)}
+                        </span>
+                        <span className="text-[10px] text-slate-400">Min: {ing.minStock}</span>
+                      </div>
                     </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-slate-400 hover:text-primary"
-                      >
-                        <LineChartIcon className="h-4 w-4" />
-                      </Button>
+                    <TableCell className="text-center text-slate-500">{ing.unit}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-slate-400 hover:text-primary"
+                          onClick={() => setSelectedIngredient(ing)}
+                          title="Histórico de Preço"
+                        >
+                          <LineChartIcon className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-slate-400 hover:text-emerald-600"
+                          onClick={() => {
+                            setAdjustStockDialog({ open: true, ingredient: ing })
+                            setStockAdjustment(0)
+                          }}
+                          title="Ajustar Estoque"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 )
@@ -194,6 +283,7 @@ export default function Ingredients() {
         </CardContent>
       </Card>
 
+      {/* Histórico Drawer */}
       <Drawer
         open={!!selectedIngredient}
         onOpenChange={(open) => !open && setSelectedIngredient(null)}
@@ -232,12 +322,73 @@ export default function Ingredients() {
         </DrawerContent>
       </Drawer>
 
+      {/* Ajuste de Estoque Dialog */}
+      <Dialog
+        open={adjustStockDialog.open}
+        onOpenChange={(open) => !open && setAdjustStockDialog({ open: false, ingredient: null })}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Ajustar Estoque Manual</DialogTitle>
+            <DialogDescription>
+              {adjustStockDialog.ingredient?.name} (Estoque atual:{' '}
+              {adjustStockDialog.ingredient?.stock.toFixed(2)} {adjustStockDialog.ingredient?.unit})
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label>Quantidade a Adicionar / Remover</Label>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setStockAdjustment((s) => s - 1)}
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  type="number"
+                  value={stockAdjustment}
+                  onChange={(e) => setStockAdjustment(Number(e.target.value))}
+                  className="text-center font-mono text-lg"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setStockAdjustment((s) => s + 1)}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500 text-center">
+                Novo estoque será:{' '}
+                {((adjustStockDialog.ingredient?.stock || 0) + stockAdjustment).toFixed(2)}{' '}
+                {adjustStockDialog.ingredient?.unit}
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setAdjustStockDialog({ open: false, ingredient: null })}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleAdjustStock} disabled={stockAdjustment === 0}>
+              Salvar Ajuste
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* OCR Dialog */}
       <Dialog open={isReviewOpen} onOpenChange={setIsReviewOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto w-[95vw] p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>Revisão de Nota Fiscal (OCR)</DialogTitle>
             <DialogDescription>
-              Vincule os itens lidos com seus insumos cadastrados e ajuste as conversões de unidade.
+              Vincule os itens lidos com seus insumos cadastrados. O estoque será atualizado
+              automaticamente.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -277,7 +428,7 @@ export default function Ingredients() {
                   </Select>
                 </div>
                 {ocrMapping[res.id]?.ingredientId && (
-                  <div className="flex items-center gap-3 bg-white p-2 rounded border text-sm">
+                  <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded border text-sm">
                     <span className="text-slate-500 whitespace-nowrap">Fator conv.:</span>
                     <Input
                       type="number"
@@ -290,10 +441,15 @@ export default function Ingredients() {
                         }))
                       }
                     />
-                    <span className="text-emerald-600 font-medium text-xs ml-auto">
-                      Novo custo unit.:{' '}
-                      {formatCurrency(res.unitPrice / (ocrMapping[res.id]?.factor || 1))}
-                    </span>
+                    <div className="flex flex-col items-end ml-auto gap-1">
+                      <span className="text-emerald-600 font-medium text-xs">
+                        Novo custo unit.:{' '}
+                        {formatCurrency(res.unitPrice / (ocrMapping[res.id]?.factor || 1))}
+                      </span>
+                      <span className="text-blue-600 font-medium text-xs">
+                        Estoque a somar: +{(res.qty * (ocrMapping[res.id]?.factor || 1)).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -303,7 +459,7 @@ export default function Ingredients() {
             <Button variant="outline" onClick={() => setIsReviewOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleCommitOCR}>Atualizar Custos</Button>
+            <Button onClick={handleCommitOCR}>Confirmar Entrada</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

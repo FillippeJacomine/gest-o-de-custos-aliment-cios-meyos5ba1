@@ -8,6 +8,8 @@ export type Ingredient = {
   cost: number
   history: number[]
   lastUpdated: string
+  stock: number
+  minStock: number
 }
 export type RecipeItem = { ingredientId: string; qty: number }
 export type Recipe = {
@@ -50,9 +52,10 @@ type StoreContextType = {
   sales: Sale[]
   fixedCosts: FixedCosts
   updateIngredientPrice: (id: string, newCost: number) => void
+  updateIngredientStock: (id: string, adjustment: number) => void
   getRecipeCost: (recipe: Recipe) => number
   simulateOCR: () => Promise<OCRResultItem[]>
-  commitOCRData: (updates: { ingredientId: string; newCost: number }[]) => void
+  commitOCRData: (updates: { ingredientId: string; newCost: number; addedStock: number }[]) => void
   addSale: (sale: Omit<Sale, 'id'>) => void
   updateFixedCosts: (costs: Partial<FixedCosts>) => void
 }
@@ -66,6 +69,8 @@ const initialIngredients: Ingredient[] = [
     cost: 4.5,
     history: [3.8, 4.0, 4.2, 4.5, 4.5, 4.5],
     lastUpdated: '2023-10-25',
+    stock: 25.5,
+    minStock: 10,
   },
   {
     id: '2',
@@ -75,6 +80,8 @@ const initialIngredients: Ingredient[] = [
     cost: 3.2,
     history: [3.0, 3.1, 3.2, 3.2, 3.1, 3.2],
     lastUpdated: '2023-10-20',
+    stock: 15,
+    minStock: 5,
   },
   {
     id: '3',
@@ -84,6 +91,8 @@ const initialIngredients: Ingredient[] = [
     cost: 35.0,
     history: [30, 31, 32, 34, 35, 35],
     lastUpdated: '2023-10-22',
+    stock: 3.2,
+    minStock: 2,
   },
   {
     id: '4',
@@ -93,6 +102,8 @@ const initialIngredients: Ingredient[] = [
     cost: 0.8,
     history: [0.6, 0.65, 0.7, 0.75, 0.75, 0.8],
     lastUpdated: '2023-10-26',
+    stock: 12,
+    minStock: 30, // Intentionally low to show alert
   },
   {
     id: '5',
@@ -102,6 +113,8 @@ const initialIngredients: Ingredient[] = [
     cost: 42.0,
     history: [38, 39, 40, 41, 42, 42],
     lastUpdated: '2023-10-26',
+    stock: 4.5,
+    minStock: 2,
   },
 ]
 
@@ -172,6 +185,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     )
   }
 
+  const updateIngredientStock = (id: string, adjustment: number) => {
+    setIngredients((prev) =>
+      prev.map((ing) =>
+        ing.id === id ? { ...ing, stock: Math.max(0, ing.stock + adjustment) } : ing,
+      ),
+    )
+  }
+
   const simulateOCR = async () => {
     return new Promise<OCRResultItem[]>((resolve) => {
       setTimeout(() => {
@@ -197,7 +218,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     })
   }
 
-  const commitOCRData = (updates: { ingredientId: string; newCost: number }[]) => {
+  const commitOCRData = (
+    updates: { ingredientId: string; newCost: number; addedStock: number }[],
+  ) => {
     setIngredients((prev) =>
       prev.map((ing) => {
         const update = updates.find((u) => u.ingredientId === ing.id)
@@ -205,6 +228,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           return {
             ...ing,
             cost: update.newCost,
+            stock: ing.stock + update.addedStock,
             lastUpdated: new Date().toISOString().split('T')[0],
             history: [...ing.history, update.newCost].slice(-6),
           }
@@ -227,7 +251,23 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   )
 
   const addSale = (sale: Omit<Sale, 'id'>) => {
-    setSales((prev) => [...prev, { ...sale, id: Math.random().toString(36).substr(2, 9) }])
+    // Deduct stock
+    const recipe = recipes.find((r) => r.id === sale.recipeId)
+    if (recipe) {
+      const yieldRatio = sale.quantity / recipe.yield
+      setIngredients((prev) =>
+        prev.map((ing) => {
+          const item = recipe.items.find((i) => i.ingredientId === ing.id)
+          if (item) {
+            const consumed = item.qty * yieldRatio * (1 + recipe.wasteFactor / 100)
+            return { ...ing, stock: Math.max(0, ing.stock - consumed) }
+          }
+          return ing
+        }),
+      )
+    }
+
+    setSales((prev) => [...prev, { ...sale, id: Math.random().toString(36).substring(2, 9) }])
   }
 
   const updateFixedCosts = (costs: Partial<FixedCosts>) => {
@@ -242,6 +282,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         sales,
         fixedCosts,
         updateIngredientPrice,
+        updateIngredientStock,
         getRecipeCost,
         simulateOCR,
         commitOCRData,
