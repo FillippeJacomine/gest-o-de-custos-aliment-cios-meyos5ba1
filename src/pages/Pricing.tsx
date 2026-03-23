@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useAppStore, Recipe } from '@/stores/useAppStore'
+import { useAppStore, PaymentTerminal } from '@/stores/useAppStore'
 import { roundToPsychological } from '@/lib/pricing'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,17 +12,39 @@ import {
 } from '@/components/ui/select'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Calculator, Store, DollarSign, Settings, Percent } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Calculator, DollarSign, Settings, Percent, CreditCard, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { useToast } from '@/hooks/use-toast'
 
 export default function Pricing() {
-  const { recipes, getRecipeCost, fixedCosts } = useAppStore()
+  const { recipes, getRecipeCost, fixedCosts, paymentTerminals, addPaymentTerminal } = useAppStore()
+  const { toast } = useToast()
+
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>(recipes[0]?.id || '')
 
   // Custom Calculator States
   const [margin, setMargin] = useState(25) // m
   const [appFee, setAppFee] = useState(12) // t_app
-  const [cardFee, setCardFee] = useState(2.5) // k_card
   const [discount, setDiscount] = useState(0) // d
+
+  // Payment Terminals
+  const [selectedTerminalId, setSelectedTerminalId] = useState<string>(
+    paymentTerminals[0]?.id || '',
+  )
+  const [cardMode, setCardMode] = useState<'debit' | 'credit' | 'installments'>('credit')
+  const [isTerminalDialogOpen, setIsTerminalDialogOpen] = useState(false)
+  const [newTerminal, setNewTerminal] = useState<Partial<PaymentTerminal>>({
+    debit: 1.5,
+    credit: 3.5,
+    installments: 5,
+  })
 
   const [pkgCost, setPkgCost] = useState(1.5) // E
   const [fixedAppCost, setFixedAppCost] = useState(0) // F_app
@@ -38,6 +60,9 @@ export default function Pricing() {
   const totalGlobalFixed = fixedCosts.rent + fixedCosts.energy + fixedCosts.gas + fixedCosts.labor
   const allocatedFixedCost =
     allocationType === 'percent' ? totalGlobalFixed * (allocationVal / 100) : allocationVal
+
+  const terminal = paymentTerminals.find((t) => t.id === selectedTerminalId)
+  const cardFee = terminal ? terminal[cardMode] : 2.5 // fallback
 
   // Markup Divisor Engine
   // P = (C + E + F_app + F_delivery + CustosFixosRateados) / (1 - (m + t_app + k_card + d))
@@ -58,6 +83,20 @@ export default function Pricing() {
   const netProfit = finalPrice - totalMonetaryCosts - totalPercentageFeesValue
   const realMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0
 
+  const handleSaveTerminal = () => {
+    if (
+      newTerminal.name &&
+      newTerminal.debit !== undefined &&
+      newTerminal.credit !== undefined &&
+      newTerminal.installments !== undefined
+    ) {
+      addPaymentTerminal(newTerminal as Omit<PaymentTerminal, 'id'>)
+      toast({ title: 'Máquina adicionada' })
+      setIsTerminalDialogOpen(false)
+      setNewTerminal({ debit: 1.5, credit: 3.5, installments: 5 })
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -66,10 +105,10 @@ export default function Pricing() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-slate-800">
-            Calculadora de Precificação (Markup Divisor)
+            Calculadora de Precificação Inteligente
           </h1>
           <p className="text-slate-500 text-sm">
-            Fórmula dinâmica com integração de custos fixos, taxas de app e margem desejada.
+            Fórmula dinâmica integrando taxas de máquinas, app e rateio fixo.
           </p>
         </div>
       </div>
@@ -130,21 +169,60 @@ export default function Pricing() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-slate-600">Taxa de Cartão (k_card)</Label>
+                    <Label className="text-amber-600">Desconto/Cupom (d)</Label>
                     <Input
                       type="number"
-                      value={cardFee}
-                      onChange={(e) => setCardFee(Number(e.target.value))}
+                      value={discount}
+                      onChange={(e) => setDiscount(Number(e.target.value))}
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-amber-600">Desconto/Cupom Ofertado (d)</Label>
-                  <Input
-                    type="number"
-                    value={discount}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
-                  />
+
+                <div className="space-y-1 border-t pt-4 mt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-indigo-800 font-semibold flex items-center gap-1">
+                      <CreditCard className="h-4 w-4" /> Terminal (k_card)
+                    </Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-indigo-600 px-2"
+                      onClick={() => setIsTerminalDialogOpen(true)}
+                    >
+                      Gerenciar
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Select value={selectedTerminalId} onValueChange={setSelectedTerminalId}>
+                      <SelectTrigger className="bg-white border-indigo-100">
+                        <SelectValue placeholder="Máquina..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {paymentTerminals.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={cardMode} onValueChange={(v: any) => setCardMode(v)}>
+                      <SelectTrigger className="bg-white border-indigo-100">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="debit">Débito ({terminal?.debit}%)</SelectItem>
+                        <SelectItem value="credit">Crédito 1x ({terminal?.credit}%)</SelectItem>
+                        <SelectItem value="installments">
+                          Parcelado ({terminal?.installments}%)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {terminal && (
+                    <p className="text-xs text-slate-500 text-right mt-1">
+                      Taxa aplicada: <span className="font-bold text-indigo-700">{cardFee}%</span>
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -206,7 +284,7 @@ export default function Pricing() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="percent">% do Total</SelectItem>
-                        <SelectItem value="value">Valor Fixo (R$)</SelectItem>
+                        <SelectItem value="value">Valor Fixo</SelectItem>
                       </SelectContent>
                     </Select>
                     <Input
@@ -272,14 +350,73 @@ export default function Pricing() {
               </div>
 
               <div className="pt-4 border-t">
-                <p className="text-[10px] text-slate-400 font-mono text-center">
-                  P = (C + E + F_app + F_del + C_fix) / (1 - (m + t_app + k_card + d))
+                <p className="text-[10px] text-slate-400 font-mono text-center leading-relaxed">
+                  P = (Custo Base + Extras) / (1 - Deduções %)
                 </p>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      <Dialog open={isTerminalDialogOpen} onOpenChange={setIsTerminalDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adicionar Máquina / Terminal</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Nome do Terminal</Label>
+              <Input
+                value={newTerminal.name || ''}
+                onChange={(e) => setNewTerminal({ ...newTerminal, name: e.target.value })}
+                placeholder="Ex: Stone Safra 2"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Débito (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={newTerminal.debit}
+                  onChange={(e) =>
+                    setNewTerminal({ ...newTerminal, debit: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Crédito 1x (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={newTerminal.credit}
+                  onChange={(e) =>
+                    setNewTerminal({ ...newTerminal, credit: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Parcelado (%)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={newTerminal.installments}
+                  onChange={(e) =>
+                    setNewTerminal({ ...newTerminal, installments: Number(e.target.value) })
+                  }
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsTerminalDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveTerminal}>Salvar Terminal</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

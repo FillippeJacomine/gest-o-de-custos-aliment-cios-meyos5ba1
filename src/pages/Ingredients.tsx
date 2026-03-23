@@ -43,6 +43,8 @@ import {
   AlertTriangle,
   Plus,
   Minus,
+  ShoppingCart,
+  CheckCircle2,
 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -139,6 +141,22 @@ export default function Ingredients() {
     )
   }
 
+  const handleExportShoppingList = () => {
+    exportToCSV(
+      'lista_compras_sugerida',
+      [
+        'Insumo',
+        'Estoque Atual',
+        'Estoque Minimo',
+        'Sugestao Compra',
+        'Unidade',
+        'Custo Unitario Estimado',
+      ],
+      shoppingList.map((i) => [i.name, i.stock, i.minStock, i.suggestedQty, i.unit, i.cost]),
+    )
+    toast({ title: 'Lista de Compras exportada' })
+  }
+
   const handleAdjustStock = () => {
     if (adjustStockDialog.ingredient && stockAdjustment !== 0) {
       updateIngredientStock(adjustStockDialog.ingredient.id, stockAdjustment)
@@ -157,19 +175,33 @@ export default function Ingredients() {
   const chartData =
     selectedIngredient?.history.map((price, idx) => ({ month: `Mês ${idx + 1}`, price })) || []
 
+  const shoppingList = ingredients
+    .filter((i) => i.stock <= i.minStock)
+    .map((i) => ({ ...i, suggestedQty: Math.max(i.minStock * 2 - i.stock, 1) }))
+
+  const handleBuyShoppingList = () => {
+    shoppingList.forEach((item) => updateIngredientStock(item.id, item.suggestedQty))
+    toast({
+      title: 'Estoque Atualizado',
+      description: 'Todos os itens da lista foram adicionados ao estoque.',
+    })
+  }
+
+  const handleBuySingleItem = (id: string, qty: number) => {
+    updateIngredientStock(id, qty)
+    toast({ title: 'Item comprado', description: 'Estoque atualizado com sucesso.' })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Insumos & Estoque</h1>
           <p className="text-slate-500 text-sm">
-            Gerencie seus ingredientes, custos e níveis de estoque.
+            Gerencie seus ingredientes, custos e planeje suas compras.
           </p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto shadow-sm">
-            <Download className="mr-2 h-4 w-4" /> Exportar
-          </Button>
           <Button onClick={handleScan} disabled={isScanning} className="w-full sm:w-auto shadow-md">
             {isScanning ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -181,113 +213,229 @@ export default function Ingredients() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="p-4 border-b relative max-w-sm">
-            <Search className="absolute left-7 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              placeholder="Buscar ingrediente..."
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-slate-50 hover:bg-slate-50">
-                <TableHead>Nome</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead className="text-right">Custo Atual</TableHead>
-                <TableHead className="text-right">Perda</TableHead>
-                <TableHead className="text-right">Estoque</TableHead>
-                <TableHead className="text-center">Unidade</TableHead>
-                <TableHead className="text-right">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredIngredients.map((ing) => {
-                const isPriceAlert =
-                  ing.history.length > 1 && ing.cost > ing.history[ing.history.length - 2] * 1.1
-                const isStockAlert = ing.stock <= ing.minStock
+      <Tabs defaultValue="inventory" className="space-y-4">
+        <TabsList className="bg-white border w-full sm:w-auto flex-wrap">
+          <TabsTrigger value="inventory" className="flex-1 sm:flex-none">
+            Estoque Geral
+          </TabsTrigger>
+          <TabsTrigger value="shopping" className="flex-1 sm:flex-none flex gap-2">
+            Lista de Compras
+            {shoppingList.length > 0 && (
+              <Badge variant="destructive" className="h-5 w-5 p-0 flex justify-center rounded-full">
+                {shoppingList.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-                return (
-                  <TableRow key={ing.id} className="hover:bg-slate-50">
-                    <TableCell
-                      className="font-medium cursor-pointer"
-                      onClick={() => setSelectedIngredient(ing)}
-                    >
-                      <div className="flex items-center gap-2">
-                        {ing.name}
-                        {isPriceAlert && (
-                          <Badge variant="destructive" className="text-[10px]">
-                            Preço Alta
-                          </Badge>
-                        )}
-                        {isStockAlert && (
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] text-amber-600 border-amber-300 bg-amber-50"
-                          >
-                            <AlertTriangle className="h-3 w-3 mr-1" /> Estoque Baixo
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="bg-white">
-                        {ing.category}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-mono font-semibold text-slate-700">
-                      {formatCurrency(ing.cost)}
-                    </TableCell>
-                    <TableCell className="text-right text-slate-500">{ing.wasteFactor}%</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-col items-end">
-                        <span
-                          className={cn(
-                            'font-mono font-bold',
-                            isStockAlert ? 'text-amber-600' : 'text-slate-700',
-                          )}
-                        >
-                          {ing.stock.toFixed(2)}
-                        </span>
-                        <span className="text-[10px] text-slate-400">Min: {ing.minStock}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center text-slate-500">{ing.unit}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-slate-400 hover:text-primary"
-                          onClick={() => setSelectedIngredient(ing)}
-                          title="Analisar"
-                        >
-                          <LineChartIcon className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-slate-400 hover:text-emerald-600"
-                          onClick={() => {
-                            setAdjustStockDialog({ open: true, ingredient: ing })
-                            setStockAdjustment(0)
-                          }}
-                          title="Ajustar Estoque"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+        <TabsContent value="inventory" className="space-y-4">
+          <Card>
+            <CardContent className="p-0">
+              <div className="p-4 border-b flex flex-col sm:flex-row gap-4 justify-between items-center">
+                <div className="relative w-full sm:max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Buscar ingrediente..."
+                    className="pl-9"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleExport}
+                  className="w-full sm:w-auto shadow-sm"
+                >
+                  <Download className="mr-2 h-4 w-4" /> Exportar
+                </Button>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50 hover:bg-slate-50">
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Categoria</TableHead>
+                    <TableHead className="text-right">Custo Atual</TableHead>
+                    <TableHead className="text-right">Perda</TableHead>
+                    <TableHead className="text-right">Estoque</TableHead>
+                    <TableHead className="text-center">Unidade</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredIngredients.map((ing) => {
+                    const isPriceAlert =
+                      ing.history.length > 1 && ing.cost > ing.history[ing.history.length - 2] * 1.1
+                    const isStockAlert = ing.stock <= ing.minStock
+
+                    return (
+                      <TableRow key={ing.id} className="hover:bg-slate-50">
+                        <TableCell
+                          className="font-medium cursor-pointer"
+                          onClick={() => setSelectedIngredient(ing)}
+                        >
+                          <div className="flex items-center gap-2">
+                            {ing.name}
+                            {isPriceAlert && (
+                              <Badge variant="destructive" className="text-[10px]">
+                                Preço Alta
+                              </Badge>
+                            )}
+                            {isStockAlert && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] text-amber-600 border-amber-300 bg-amber-50"
+                              >
+                                <AlertTriangle className="h-3 w-3 mr-1" /> Estoque Baixo
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="bg-white">
+                            {ing.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold text-slate-700">
+                          {formatCurrency(ing.cost)}
+                        </TableCell>
+                        <TableCell className="text-right text-slate-500">
+                          {ing.wasteFactor}%
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={cn(
+                                'font-mono font-bold',
+                                isStockAlert ? 'text-amber-600' : 'text-slate-700',
+                              )}
+                            >
+                              {ing.stock.toFixed(2)}
+                            </span>
+                            <span className="text-[10px] text-slate-400">Min: {ing.minStock}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center text-slate-500">{ing.unit}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-primary"
+                              onClick={() => setSelectedIngredient(ing)}
+                              title="Analisar"
+                            >
+                              <LineChartIcon className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-slate-400 hover:text-emerald-600"
+                              onClick={() => {
+                                setAdjustStockDialog({ open: true, ingredient: ing })
+                                setStockAdjustment(0)
+                              }}
+                              title="Ajustar Estoque"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="shopping" className="space-y-4">
+          <Card className="border-amber-200">
+            <CardHeader className="bg-amber-50/50 pb-4 border-b border-amber-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div>
+                <CardTitle className="text-amber-800 flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5" /> Lista de Compras Sugerida
+                </CardTitle>
+                <DialogDescription className="text-amber-700/80 mt-1">
+                  Insumos que atingiram o estoque crítico. As quantidades sugeridas visam
+                  restabelecer uma margem segura.
+                </DialogDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="border-amber-300 text-amber-800 hover:bg-amber-100"
+                  onClick={handleExportShoppingList}
+                >
+                  <Download className="h-4 w-4 mr-2" /> Exportar Lista
+                </Button>
+                <Button
+                  className="bg-amber-600 hover:bg-amber-700"
+                  onClick={handleBuyShoppingList}
+                  disabled={shoppingList.length === 0}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" /> Marcar Tudo Comprado
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Insumo</TableHead>
+                    <TableHead className="text-right">Estoque Atual</TableHead>
+                    <TableHead className="text-right">Estoque Mínimo</TableHead>
+                    <TableHead className="text-right font-bold text-amber-800">
+                      Comprar Sugerido
+                    </TableHead>
+                    <TableHead className="text-right">Custo Est.</TableHead>
+                    <TableHead className="text-center">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {shoppingList.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-10 text-slate-500">
+                        Nenhum insumo em nível crítico no momento.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    shoppingList.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium text-slate-800">{item.name}</TableCell>
+                        <TableCell className="text-right text-red-500 font-semibold">
+                          {item.stock.toFixed(2)} {item.unit}
+                        </TableCell>
+                        <TableCell className="text-right text-slate-500">
+                          {item.minStock} {item.unit}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded font-bold">
+                            +{item.suggestedQty.toFixed(2)} {item.unit}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right text-slate-600">
+                          {formatCurrency(item.suggestedQty * item.cost)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            onClick={() => handleBuySingleItem(item.id, item.suggestedQty)}
+                          >
+                            <CheckCircle2 className="h-4 w-4 mr-1" /> Feito
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Histórico Drawer */}
       <Drawer

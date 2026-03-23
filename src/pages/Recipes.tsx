@@ -19,11 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatCurrency } from '@/lib/format'
 import { printHTML } from '@/lib/export'
-import { Plus, ChefHat, Scale, Printer, Tags, Trash2 } from 'lucide-react'
+import { Plus, ChefHat, Scale, Printer, Tags, Trash2, Info, ImageIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
+import { getAvailableUnits, getConversionFactor } from '@/lib/units'
 
 export default function Recipes() {
   const { recipes, ingredients, getRecipeCost, addRecipe, updateRecipe, deleteRecipe } =
@@ -37,6 +39,7 @@ export default function Recipes() {
     yield: 1,
     wasteFactor: 0,
     items: [],
+    image: '',
   })
 
   const handlePrintRecipe = (recipe: Recipe) => {
@@ -46,12 +49,13 @@ export default function Recipes() {
     const itemsHtml = recipe.items
       .map((item) => {
         const ing = ingredients.find((i) => i.id === item.ingredientId)
+        const factor = getConversionFactor(ing?.unit || 'un', item.unit || ing?.unit || 'un')
         const effectiveCost = (ing?.cost || 0) * (1 + (ing?.wasteFactor || 0) / 100)
         return `<tr>
         <td>${ing?.name}</td>
-        <td>${item.qty} ${ing?.unit}</td>
-        <td>${formatCurrency(effectiveCost)}</td>
-        <td>${formatCurrency(effectiveCost * item.qty)}</td>
+        <td>${item.qty} ${item.unit || ing?.unit}</td>
+        <td>${formatCurrency(effectiveCost)}/${ing?.unit}</td>
+        <td>${formatCurrency(effectiveCost * item.qty * factor)}</td>
       </tr>`
       })
       .join('')
@@ -68,7 +72,7 @@ export default function Recipes() {
       <p><strong>Custo Unitário (por porção):</strong> ${formatCurrency(unitCost)}</p>
       <h3>Ingredientes</h3>
       <table>
-        <thead><tr><th>Insumo</th><th>Quantidade</th><th>Custo Efetivo (c/ Perda)</th><th>Custo na Receita</th></tr></thead>
+        <thead><tr><th>Insumo</th><th>Quantidade</th><th>Custo Base (c/ Perda)</th><th>Custo na Receita</th></tr></thead>
         <tbody>${itemsHtml}</tbody>
       </table>
     `
@@ -106,7 +110,7 @@ export default function Recipes() {
       yield: 1,
       wasteFactor: 0,
       items: [],
-      image: 'https://img.usecurling.com/p/200/200?q=cake',
+      image: 'https://img.usecurling.com/p/200/200?q=food',
     })
     setIsDialogOpen(true)
   }
@@ -129,7 +133,10 @@ export default function Recipes() {
     let total = 0
     recipeForm.items?.forEach((item) => {
       const ing = ingredients.find((i) => i.id === item.ingredientId)
-      if (ing) total += ing.cost * (1 + (ing.wasteFactor || 0) / 100) * item.qty
+      if (ing) {
+        const factor = getConversionFactor(ing.unit, item.unit || ing.unit)
+        total += ing.cost * factor * (1 + (ing.wasteFactor || 0) / 100) * item.qty
+      }
     })
     return total * (1 + (recipeForm.wasteFactor || 0) / 100)
   }
@@ -156,17 +163,23 @@ export default function Recipes() {
           return (
             <Card
               key={recipe.id}
-              className="overflow-hidden hover:shadow-lg transition-all group animate-fade-in-up"
+              className="overflow-hidden hover:shadow-lg transition-all group animate-fade-in-up flex flex-col"
             >
               <div
-                className="h-40 overflow-hidden relative group/img cursor-pointer"
+                className="h-40 overflow-hidden relative group/img cursor-pointer shrink-0"
                 onClick={() => handleEdit(recipe)}
               >
-                <img
-                  src={recipe.image}
-                  alt={recipe.name}
-                  className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500"
-                />
+                {recipe.image ? (
+                  <img
+                    src={recipe.image}
+                    alt={recipe.name}
+                    className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-slate-200 flex items-center justify-center text-slate-400">
+                    <ImageIcon className="h-10 w-10 opacity-50" />
+                  </div>
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex flex-col justify-end p-4">
                   <Badge className="bg-white/20 text-white backdrop-blur-md border-none w-fit mb-2">
                     {recipe.category}
@@ -202,9 +215,9 @@ export default function Recipes() {
                   </Button>
                 </div>
               </div>
-              <CardContent className="p-5">
+              <CardContent className="p-5 flex flex-col flex-1">
                 <h3 className="font-bold text-lg text-slate-800 mb-4">{recipe.name}</h3>
-                <div className="space-y-3">
+                <div className="space-y-3 flex-1">
                   <div className="flex justify-between text-sm items-center border-b pb-2">
                     <span className="text-slate-500 flex items-center gap-1.5">
                       <ChefHat className="h-4 w-4" /> Custo Total
@@ -224,7 +237,7 @@ export default function Recipes() {
                     </span>
                   </div>
                 </div>
-                <div className="mt-6 flex gap-2">
+                <div className="mt-6 flex gap-2 pt-4 border-t">
                   <Link to="/pricing" className="flex-1">
                     <Button
                       variant="outline"
@@ -255,6 +268,43 @@ export default function Recipes() {
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
             <div className="space-y-4">
+              <div className="space-y-2 md:col-span-2">
+                <Label className="flex items-center gap-1">
+                  Imagem da Receita
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 text-slate-400" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      Carregue uma foto da sua receita para fácil identificação.
+                    </TooltipContent>
+                  </Tooltip>
+                </Label>
+                <div className="flex items-center gap-4">
+                  <div className="h-16 w-16 rounded border bg-slate-100 overflow-hidden shrink-0 relative flex items-center justify-center">
+                    {recipeForm.image ? (
+                      <img src={recipeForm.image} className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageIcon className="h-6 w-6 text-slate-300" />
+                    )}
+                  </div>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    className="flex-1"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) {
+                        const reader = new FileReader()
+                        reader.onloadend = () =>
+                          setRecipeForm({ ...recipeForm, image: reader.result as string })
+                        reader.readAsDataURL(file)
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label>Nome da Receita</Label>
                 <Input
@@ -262,9 +312,20 @@ export default function Recipes() {
                   onChange={(e) => setRecipeForm({ ...recipeForm, name: e.target.value })}
                 />
               </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Rendimento (Porções)</Label>
+                  <Label className="flex items-center gap-1">
+                    Rendimento (Porções)
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Info className="h-3 w-3 text-slate-400" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Quantas unidades/porções esta receita inteira rende.
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
                   <Input
                     type="number"
                     value={recipeForm.yield}
@@ -274,7 +335,18 @@ export default function Recipes() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Perda na Produção (%)</Label>
+                  <Label className="flex items-center gap-1">
+                    Perda na Montagem (%)
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <Info className="h-3 w-3 text-slate-400" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        Porcentagem que se perde ao rechear, cobrir ou montar (ex: massa que fica na
+                        panela).
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
                   <Input
                     type="number"
                     value={recipeForm.wasteFactor}
@@ -295,6 +367,8 @@ export default function Recipes() {
                         onValueChange={(v) => {
                           const newItems = [...(recipeForm.items || [])]
                           newItems[idx].ingredientId = v
+                          // Auto set unit to ingredient base unit initially
+                          newItems[idx].unit = ingredients.find((i) => i.id === v)?.unit || 'un'
                           setRecipeForm({ ...recipeForm, items: newItems })
                         }}
                       >
@@ -311,18 +385,42 @@ export default function Recipes() {
                       </Select>
                       <Input
                         type="number"
-                        className="w-20 h-8 text-xs"
+                        className="w-16 h-8 text-xs px-2"
                         value={item.qty}
+                        step="any"
                         onChange={(e) => {
                           const newItems = [...(recipeForm.items || [])]
                           newItems[idx].qty = Number(e.target.value)
                           setRecipeForm({ ...recipeForm, items: newItems })
                         }}
                       />
+                      <Select
+                        value={
+                          item.unit || ingredients.find((i) => i.id === item.ingredientId)?.unit
+                        }
+                        onValueChange={(v) => {
+                          const newItems = [...(recipeForm.items || [])]
+                          newItems[idx].unit = v
+                          setRecipeForm({ ...recipeForm, items: newItems })
+                        }}
+                      >
+                        <SelectTrigger className="w-16 bg-white h-8 text-xs px-2">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getAvailableUnits(
+                            ingredients.find((i) => i.id === item.ingredientId)?.unit || 'un',
+                          ).map((u) => (
+                            <SelectItem key={u} value={u}>
+                              {u}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-500"
+                        className="h-8 w-8 text-red-500 shrink-0"
                         onClick={() => {
                           setRecipeForm({
                             ...recipeForm,
@@ -343,7 +441,7 @@ export default function Recipes() {
                         ...recipeForm,
                         items: [
                           ...(recipeForm.items || []),
-                          { ingredientId: ingredients[0].id, qty: 1 },
+                          { ingredientId: ingredients[0].id, qty: 1, unit: ingredients[0].unit },
                         ],
                       })
                     }}
@@ -354,11 +452,9 @@ export default function Recipes() {
               </div>
             </div>
 
-            <div className="bg-slate-50 p-4 rounded-lg border flex flex-col justify-between">
+            <div className="bg-slate-50 p-4 rounded-lg border flex flex-col justify-between h-fit md:sticky top-4">
               <div>
-                <h4 className="font-medium text-slate-800 mb-4 border-b pb-2">
-                  Resumo de Custos (Tempo Real)
-                </h4>
+                <h4 className="font-medium text-slate-800 mb-4 border-b pb-2">Resumo de Custos</h4>
                 <div className="space-y-3">
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Custo dos Insumos (c/ perdas)</span>

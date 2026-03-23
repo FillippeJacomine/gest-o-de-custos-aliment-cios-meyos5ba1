@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useMemo } from 'react'
+import { getConversionFactor } from '@/lib/units'
 
 export type SupplierPrice = {
   supplierId: string
@@ -27,7 +28,7 @@ export type Supplier = {
   document: string
 }
 
-export type RecipeItem = { ingredientId: string; qty: number }
+export type RecipeItem = { ingredientId: string; qty: number; unit?: string }
 export type Recipe = {
   id: string
   name: string
@@ -62,12 +63,30 @@ export type FixedCosts = {
   labor: number
 }
 
+export type PaymentTerminal = {
+  id: string
+  name: string
+  debit: number
+  credit: number
+  installments: number
+}
+
+export type PrepTask = {
+  id: string
+  recipeId: string
+  date: string
+  quantity: number
+  status: 'pending' | 'completed'
+}
+
 type StoreContextType = {
   ingredients: Ingredient[]
   recipes: Recipe[]
   sales: Sale[]
   fixedCosts: FixedCosts
   suppliers: Supplier[]
+  paymentTerminals: PaymentTerminal[]
+  prepTasks: PrepTask[]
   updateIngredientPrice: (id: string, newCost: number) => void
   updateIngredientStock: (id: string, adjustment: number) => void
   getRecipeCost: (recipe: Recipe) => number
@@ -81,6 +100,9 @@ type StoreContextType = {
   addRecipe: (r: Omit<Recipe, 'id'>) => void
   updateRecipe: (id: string, r: Partial<Recipe>) => void
   deleteRecipe: (id: string) => void
+  addPaymentTerminal: (p: Omit<PaymentTerminal, 'id'>) => void
+  addPrepTask: (t: Omit<PrepTask, 'id'>) => void
+  completePrepTask: (id: string) => void
 }
 
 const initialSuppliers: Supplier[] = [
@@ -102,7 +124,7 @@ const initialIngredients: Ingredient[] = [
     cost: 4.5,
     history: [3.8, 4.0, 4.2, 4.5, 4.5, 4.5],
     lastUpdated: '2023-10-25',
-    stock: 25.5,
+    stock: 8, // Below minStock for shopping list test
     minStock: 10,
     wasteFactor: 2,
     supplierHistory: [{ supplierId: '1', price: 4.5, date: '2023-10-25' }],
@@ -128,7 +150,7 @@ const initialIngredients: Ingredient[] = [
     cost: 35.0,
     history: [30, 31, 32, 34, 35, 35],
     lastUpdated: '2023-10-22',
-    stock: 3.2,
+    stock: 1.5, // Below minStock
     minStock: 2,
     wasteFactor: 5,
     supplierHistory: [{ supplierId: '2', price: 35.0, date: '2023-10-22' }],
@@ -169,7 +191,7 @@ const initialIngredients: Ingredient[] = [
     lastUpdated: '2023-10-26',
     stock: 5.0,
     minStock: 2,
-    wasteFactor: 20, // High waste for alert
+    wasteFactor: 20,
     supplierHistory: [],
   },
 ]
@@ -183,11 +205,11 @@ const initialRecipes: Recipe[] = [
     wasteFactor: 5,
     image: 'https://img.usecurling.com/p/200/200?q=brownie',
     items: [
-      { ingredientId: '1', qty: 0.2 },
-      { ingredientId: '2', qty: 0.3 },
-      { ingredientId: '3', qty: 0.4 },
-      { ingredientId: '4', qty: 4 },
-      { ingredientId: '5', qty: 0.2 },
+      { ingredientId: '1', qty: 200, unit: 'g' },
+      { ingredientId: '2', qty: 300, unit: 'g' },
+      { ingredientId: '3', qty: 400, unit: 'g' },
+      { ingredientId: '4', qty: 4, unit: 'un' },
+      { ingredientId: '5', qty: 200, unit: 'g' },
     ],
   },
   {
@@ -198,9 +220,9 @@ const initialRecipes: Recipe[] = [
     wasteFactor: 2,
     image: 'https://img.usecurling.com/p/200/200?q=carrot%20cake',
     items: [
-      { ingredientId: '1', qty: 0.3 },
-      { ingredientId: '2', qty: 0.25 },
-      { ingredientId: '4', qty: 3 },
+      { ingredientId: '1', qty: 300, unit: 'g' },
+      { ingredientId: '2', qty: 250, unit: 'g' },
+      { ingredientId: '4', qty: 3, unit: 'un' },
     ],
   },
 ]
@@ -212,6 +234,11 @@ const initialSales: Sale[] = [
   { id: 's4', recipeId: '2', channel: 'IFOOD_BASIC', quantity: 30, revenue: 420 },
 ]
 
+const initialTerminals: PaymentTerminal[] = [
+  { id: 't1', name: 'Stone Principal', debit: 1.25, credit: 3.1, installments: 4.5 },
+  { id: 't2', name: 'Cielo Loja', debit: 1.5, credit: 3.8, installments: 5.0 },
+]
+
 const AppContext = createContext<StoreContextType | null>(null)
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
@@ -219,6 +246,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes)
   const [sales, setSales] = useState<Sale[]>(initialSales)
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers)
+  const [paymentTerminals, setPaymentTerminals] = useState<PaymentTerminal[]>(initialTerminals)
+  const [prepTasks, setPrepTasks] = useState<PrepTask[]>([])
   const [fixedCosts, setFixedCosts] = useState<FixedCosts>({
     rent: 1200,
     energy: 350,
@@ -301,8 +330,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       recipe.items.forEach((item) => {
         const ing = ingredients.find((i) => i.id === item.ingredientId)
         if (ing) {
+          const factor = getConversionFactor(ing.unit, item.unit || ing.unit)
           const effectiveCost = ing.cost * (1 + (ing.wasteFactor || 0) / 100)
-          total += effectiveCost * item.qty
+          total += effectiveCost * item.qty * factor
         }
       })
       return total * (1 + (recipe.wasteFactor || 0) / 100)
@@ -318,7 +348,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         prev.map((ing) => {
           const item = recipe.items.find((i) => i.ingredientId === ing.id)
           if (item) {
-            const consumed = item.qty * yieldRatio * (1 + recipe.wasteFactor / 100)
+            const factor = getConversionFactor(ing.unit, item.unit || ing.unit)
+            const consumed = item.qty * factor * yieldRatio * (1 + recipe.wasteFactor / 100)
             return { ...ing, stock: Math.max(0, ing.stock - consumed) }
           }
           return ing
@@ -356,6 +387,40 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setRecipes((prev) => prev.filter((rcp) => rcp.id !== id))
   }
 
+  const addPaymentTerminal = (p: Omit<PaymentTerminal, 'id'>) => {
+    setPaymentTerminals((prev) => [
+      ...prev,
+      { ...p, id: Math.random().toString(36).substring(2, 9) },
+    ])
+  }
+
+  const addPrepTask = (t: Omit<PrepTask, 'id'>) => {
+    setPrepTasks((prev) => [...prev, { ...t, id: Math.random().toString(36).substring(2, 9) }])
+  }
+
+  const completePrepTask = (id: string) => {
+    const task = prepTasks.find((t) => t.id === id)
+    if (!task || task.status === 'completed') return
+
+    setPrepTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status: 'completed' } : t)))
+
+    const recipe = recipes.find((r) => r.id === task.recipeId)
+    if (recipe) {
+      const multiplier = task.quantity / recipe.yield
+      setIngredients((prev) =>
+        prev.map((ing) => {
+          const item = recipe.items.find((i) => i.ingredientId === ing.id)
+          if (item) {
+            const factor = getConversionFactor(ing.unit, item.unit || ing.unit)
+            const consumed = item.qty * factor * multiplier * (1 + recipe.wasteFactor / 100)
+            return { ...ing, stock: Math.max(0, ing.stock - consumed) }
+          }
+          return ing
+        }),
+      )
+    }
+  }
+
   return (
     <AppContext.Provider
       value={{
@@ -364,6 +429,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         sales,
         fixedCosts,
         suppliers,
+        paymentTerminals,
+        prepTasks,
         updateIngredientPrice,
         updateIngredientStock,
         getRecipeCost,
@@ -377,6 +444,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         addRecipe,
         updateRecipe,
         deleteRecipe,
+        addPaymentTerminal,
+        addPrepTask,
+        completePrepTask,
       }}
     >
       {children}

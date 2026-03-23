@@ -7,6 +7,7 @@ import Index from '@/pages/Index'
 import Ingredients from '@/pages/Ingredients'
 import Suppliers from '@/pages/Suppliers'
 import Recipes from '@/pages/Recipes'
+import Production from '@/pages/Production'
 import Pricing from '@/pages/Pricing'
 import Reports from '@/pages/Reports'
 import Simulator from '@/pages/Simulator'
@@ -25,6 +26,7 @@ const App = () => (
             <Route path="/ingredients" element={<Ingredients />} />
             <Route path="/suppliers" element={<Suppliers />} />
             <Route path="/recipes" element={<Recipes />} />
+            <Route path="/production" element={<Production />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/simulator" element={<Simulator />} />

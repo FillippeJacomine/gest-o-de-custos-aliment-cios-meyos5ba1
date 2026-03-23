@@ -8,6 +8,7 @@ import {
   Settings,
   BarChart3,
   Lightbulb,
+  CalendarDays,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -16,6 +17,7 @@ const navItems = [
   { path: '/ingredients', label: 'Insumos', icon: ShoppingBasket },
   { path: '/suppliers', label: 'Fornecedores', icon: Truck },
   { path: '/recipes', label: 'Receitas', icon: ChefHat },
+  { path: '/production', label: 'Produção', icon: CalendarDays },
   { path: '/pricing', label: 'Precificação', icon: Calculator },
   { path: '/reports', label: 'Relatórios', icon: BarChart3 },
   { path: '/simulator', label: 'Simulador', icon: Lightbulb },
