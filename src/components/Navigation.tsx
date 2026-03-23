@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   ShoppingBasket,
+  Truck,
   ChefHat,
   Calculator,
   Settings,
@@ -13,6 +14,7 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/ingredients', label: 'Insumos', icon: ShoppingBasket },
+  { path: '/suppliers', label: 'Fornecedores', icon: Truck },
   { path: '/recipes', label: 'Receitas', icon: ChefHat },
   { path: '/pricing', label: 'Precificação', icon: Calculator },
   { path: '/reports', label: 'Relatórios', icon: BarChart3 },

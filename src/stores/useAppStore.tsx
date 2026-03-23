@@ -1,5 +1,11 @@
 import { createContext, useContext, useState, ReactNode, useMemo } from 'react'
 
+export type SupplierPrice = {
+  supplierId: string
+  price: number
+  date: string
+}
+
 export type Ingredient = {
   id: string
   name: string
@@ -10,7 +16,17 @@ export type Ingredient = {
   lastUpdated: string
   stock: number
   minStock: number
+  wasteFactor: number
+  supplierHistory: SupplierPrice[]
 }
+
+export type Supplier = {
+  id: string
+  name: string
+  contact: string
+  document: string
+}
+
 export type RecipeItem = { ingredientId: string; qty: number }
 export type Recipe = {
   id: string
@@ -51,6 +67,7 @@ type StoreContextType = {
   recipes: Recipe[]
   sales: Sale[]
   fixedCosts: FixedCosts
+  suppliers: Supplier[]
   updateIngredientPrice: (id: string, newCost: number) => void
   updateIngredientStock: (id: string, adjustment: number) => void
   getRecipeCost: (recipe: Recipe) => number
@@ -58,7 +75,23 @@ type StoreContextType = {
   commitOCRData: (updates: { ingredientId: string; newCost: number; addedStock: number }[]) => void
   addSale: (sale: Omit<Sale, 'id'>) => void
   updateFixedCosts: (costs: Partial<FixedCosts>) => void
+  addSupplier: (s: Omit<Supplier, 'id'>) => void
+  updateSupplier: (id: string, s: Partial<Supplier>) => void
+  deleteSupplier: (id: string) => void
+  addRecipe: (r: Omit<Recipe, 'id'>) => void
+  updateRecipe: (id: string, r: Partial<Recipe>) => void
+  deleteRecipe: (id: string) => void
 }
+
+const initialSuppliers: Supplier[] = [
+  {
+    id: '1',
+    name: 'Atacadão Alimentos',
+    contact: '(11) 99999-9999',
+    document: '11.111.111/0001-11',
+  },
+  { id: '2', name: 'Distribuidora Z', contact: '(11) 88888-8888', document: '22.222.222/0001-22' },
+]
 
 const initialIngredients: Ingredient[] = [
   {
@@ -71,6 +104,8 @@ const initialIngredients: Ingredient[] = [
     lastUpdated: '2023-10-25',
     stock: 25.5,
     minStock: 10,
+    wasteFactor: 2,
+    supplierHistory: [{ supplierId: '1', price: 4.5, date: '2023-10-25' }],
   },
   {
     id: '2',
@@ -82,6 +117,8 @@ const initialIngredients: Ingredient[] = [
     lastUpdated: '2023-10-20',
     stock: 15,
     minStock: 5,
+    wasteFactor: 0,
+    supplierHistory: [{ supplierId: '1', price: 3.2, date: '2023-10-20' }],
   },
   {
     id: '3',
@@ -93,6 +130,8 @@ const initialIngredients: Ingredient[] = [
     lastUpdated: '2023-10-22',
     stock: 3.2,
     minStock: 2,
+    wasteFactor: 5,
+    supplierHistory: [{ supplierId: '2', price: 35.0, date: '2023-10-22' }],
   },
   {
     id: '4',
@@ -103,7 +142,9 @@ const initialIngredients: Ingredient[] = [
     history: [0.6, 0.65, 0.7, 0.75, 0.75, 0.8],
     lastUpdated: '2023-10-26',
     stock: 12,
-    minStock: 30, // Intentionally low to show alert
+    minStock: 30,
+    wasteFactor: 12,
+    supplierHistory: [],
   },
   {
     id: '5',
@@ -115,6 +156,21 @@ const initialIngredients: Ingredient[] = [
     lastUpdated: '2023-10-26',
     stock: 4.5,
     minStock: 2,
+    wasteFactor: 3,
+    supplierHistory: [],
+  },
+  {
+    id: '6',
+    name: 'Cebola',
+    category: 'Hortifruti',
+    unit: 'kg',
+    cost: 6.5,
+    history: [5.0, 5.5, 6.0, 6.5],
+    lastUpdated: '2023-10-26',
+    stock: 5.0,
+    minStock: 2,
+    wasteFactor: 20, // High waste for alert
+    supplierHistory: [],
   },
 ]
 
@@ -160,8 +216,9 @@ const AppContext = createContext<StoreContextType | null>(null)
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients)
-  const [recipes] = useState<Recipe[]>(initialRecipes)
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes)
   const [sales, setSales] = useState<Sale[]>(initialSales)
+  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers)
   const [fixedCosts, setFixedCosts] = useState<FixedCosts>({
     rent: 1200,
     energy: 350,
@@ -243,15 +300,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       let total = 0
       recipe.items.forEach((item) => {
         const ing = ingredients.find((i) => i.id === item.ingredientId)
-        if (ing) total += ing.cost * item.qty
+        if (ing) {
+          const effectiveCost = ing.cost * (1 + (ing.wasteFactor || 0) / 100)
+          total += effectiveCost * item.qty
+        }
       })
-      return total * (1 + recipe.wasteFactor / 100)
+      return total * (1 + (recipe.wasteFactor || 0) / 100)
     },
     [ingredients],
   )
 
   const addSale = (sale: Omit<Sale, 'id'>) => {
-    // Deduct stock
     const recipe = recipes.find((r) => r.id === sale.recipeId)
     if (recipe) {
       const yieldRatio = sale.quantity / recipe.yield
@@ -266,12 +325,35 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }),
       )
     }
-
     setSales((prev) => [...prev, { ...sale, id: Math.random().toString(36).substring(2, 9) }])
   }
 
   const updateFixedCosts = (costs: Partial<FixedCosts>) => {
     setFixedCosts((prev) => ({ ...prev, ...costs }))
+  }
+
+  const addSupplier = (s: Omit<Supplier, 'id'>) => {
+    setSuppliers((prev) => [...prev, { ...s, id: Math.random().toString(36).substring(2, 9) }])
+  }
+
+  const updateSupplier = (id: string, s: Partial<Supplier>) => {
+    setSuppliers((prev) => prev.map((sup) => (sup.id === id ? { ...sup, ...s } : sup)))
+  }
+
+  const deleteSupplier = (id: string) => {
+    setSuppliers((prev) => prev.filter((sup) => sup.id !== id))
+  }
+
+  const addRecipe = (r: Omit<Recipe, 'id'>) => {
+    setRecipes((prev) => [...prev, { ...r, id: Math.random().toString(36).substring(2, 9) }])
+  }
+
+  const updateRecipe = (id: string, r: Partial<Recipe>) => {
+    setRecipes((prev) => prev.map((rcp) => (rcp.id === id ? { ...rcp, ...r } : rcp)))
+  }
+
+  const deleteRecipe = (id: string) => {
+    setRecipes((prev) => prev.filter((rcp) => rcp.id !== id))
   }
 
   return (
@@ -281,6 +363,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         recipes,
         sales,
         fixedCosts,
+        suppliers,
         updateIngredientPrice,
         updateIngredientStock,
         getRecipeCost,
@@ -288,6 +371,12 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         commitOCRData,
         addSale,
         updateFixedCosts,
+        addSupplier,
+        updateSupplier,
+        deleteSupplier,
+        addRecipe,
+        updateRecipe,
+        deleteRecipe,
       }}
     >
       {children}

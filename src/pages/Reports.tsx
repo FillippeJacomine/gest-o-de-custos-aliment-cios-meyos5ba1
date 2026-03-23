@@ -11,25 +11,25 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { formatCurrency, formatPercent } from '@/lib/format'
+import { exportToCSV, printHTML } from '@/lib/export'
 import { ChartContainer, ChartTooltipContent, ChartTooltip } from '@/components/ui/chart'
 import {
   ScatterChart,
   Scatter,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   ReferenceLine,
   ResponsiveContainer,
 } from 'recharts'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus } from 'lucide-react'
+import { Download, FileText } from 'lucide-react'
 
 export default function Reports() {
-  const { recipes, sales, fixedCosts, getRecipeCost, updateFixedCosts, addSale } = useAppStore()
-  const [costsForm, setCostsForm] = useState(fixedCosts)
+  const { recipes, sales, fixedCosts, ingredients, getRecipeCost } = useAppStore()
 
   const salesData = recipes
     .map((r) => {
@@ -60,31 +60,139 @@ export default function Reports() {
           : '#ef4444',
   }))
 
-  const totalFixedCosts = Object.values(fixedCosts).reduce((a, b) => a + b, 0)
-  const totalVolumeAll = salesData.reduce((sum, r) => sum + r.vol, 0)
-  const fixedCostPerUnit = totalVolumeAll > 0 ? totalFixedCosts / totalVolumeAll : 0
+  // Channel Profitability
+  const channelComparison = ['LOCAL', 'IFOOD_BASIC', 'IFOOD_DELIVERY'].map((ch) => {
+    const s = sales.filter((x) => x.channel === ch)
+    const vol = s.reduce((a, b) => a + b.quantity, 0)
+    const rev = s.reduce((a, b) => a + b.revenue, 0)
+    const cost = s.reduce((a, b) => {
+      const r = recipes.find((rc) => rc.id === b.recipeId)
+      return a + (r ? (getRecipeCost(r) * b.quantity) / r.yield : 0)
+    }, 0)
+    const feePct = ch === 'IFOOD_DELIVERY' ? 0.23 : ch === 'IFOOD_BASIC' ? 0.12 : 0.025
+    const netProfit = rev - cost - rev * feePct
+    return { name: ch, vol, rev, netProfit }
+  })
 
-  const handleSaveCosts = () => updateFixedCosts(costsForm)
+  // Inventory Value
+  const totalInventoryValue = ingredients.reduce((sum, i) => sum + i.stock * i.cost, 0)
 
-  const handleSimulateSale = () => {
-    addSale({ recipeId: recipes[0].id, channel: 'LOCAL', quantity: 20, revenue: 300 })
+  const handleExportCSV = () => {
+    exportToCSV(
+      'relatorio-vendas',
+      ['Produto', 'Volume', 'Receita', 'Custo Variável', 'Lucro Bruto', 'Margem'],
+      salesData.map((d) => [d.name, d.vol, d.rev, d.cost, d.profit, d.margin]),
+    )
+  }
+
+  const handleExportPDF = () => {
+    const rows = channelComparison
+      .map(
+        (c) =>
+          `<tr><td>${c.name}</td><td>${c.vol}</td><td>${formatCurrency(c.rev)}</td><td>${formatCurrency(c.netProfit)}</td></tr>`,
+      )
+      .join('')
+    const html = `
+      <div style="font-family: sans-serif;">
+        <h1 style="color: #1e293b;">Relatório Gerencial - Análise de Canais</h1>
+        <p><strong>Valor Total em Estoque:</strong> ${formatCurrency(totalInventoryValue)}</p>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+          <thead style="background: #f1f5f9; text-align: left;">
+            <tr><th style="padding: 10px;">Canal</th><th style="padding: 10px;">Volume</th><th style="padding: 10px;">Receita</th><th style="padding: 10px;">Lucro Líquido</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `
+    printHTML('Relatório Gerencial', html)
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Relatórios de Desempenho</h1>
-        <p className="text-slate-500 text-sm">
-          Analise suas vendas, lucratividade e impacto de custos fixos.
-        </p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Relatórios Avançados</h1>
+          <p className="text-slate-500 text-sm">
+            Visão estratégica das suas vendas, canais e patrimônio.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExportCSV}>
+            <Download className="h-4 w-4 mr-2" /> Excel / CSV
+          </Button>
+          <Button variant="default" onClick={handleExportPDF}>
+            <FileText className="h-4 w-4 mr-2" /> Exportar PDF
+          </Button>
+        </div>
       </div>
 
-      <Tabs defaultValue="matrix" className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <Card className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white">
+          <CardContent className="p-6">
+            <p className="text-indigo-100 text-sm font-medium mb-1">
+              Valor do Estoque (Patrimônio)
+            </p>
+            <h3 className="text-3xl font-bold">{formatCurrency(totalInventoryValue)}</h3>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-slate-500 text-sm font-medium mb-1">Receita Bruta Total</p>
+            <h3 className="text-3xl font-bold text-slate-800">
+              {formatCurrency(salesData.reduce((a, b) => a + b.rev, 0))}
+            </h3>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-slate-500 text-sm font-medium mb-1">Volume Total</p>
+            <h3 className="text-3xl font-bold text-slate-800">
+              {salesData.reduce((a, b) => a + b.vol, 0)} un
+            </h3>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="channels" className="space-y-4">
         <TabsList className="bg-white border">
+          <TabsTrigger value="channels">Análise de Canais</TabsTrigger>
           <TabsTrigger value="matrix">Matriz BCG</TabsTrigger>
           <TabsTrigger value="sales">Vendas Reais</TabsTrigger>
-          <TabsTrigger value="costs">Custos Consolidados</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="channels" className="space-y-4 animate-fade-in-up">
+          <Card>
+            <CardHeader>
+              <CardTitle>Lucratividade por Canal de Venda</CardTitle>
+              <CardDescription>
+                Comparativo de Receita vs Lucro Líquido (após taxas presumidas do canal).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="h-[400px]">
+              <ChartContainer
+                config={{
+                  rev: { label: 'Receita', color: 'hsl(var(--secondary))' },
+                  netProfit: { label: 'Lucro Líquido', color: 'hsl(var(--primary))' },
+                }}
+                className="h-full w-full"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={channelComparison}
+                    margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                    <YAxis tickFormatter={(v) => `R$${v}`} tickLine={false} axisLine={false} />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Bar dataKey="rev" fill="var(--color-rev)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="netProfit" fill="var(--color-netProfit)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="matrix" className="space-y-4 animate-fade-in-up">
           <Card>
@@ -136,9 +244,6 @@ export default function Reports() {
                 <CardTitle>Desempenho por Produto</CardTitle>
                 <CardDescription>Consolidado de todas as vendas registradas.</CardDescription>
               </div>
-              <Button size="sm" variant="outline" onClick={handleSimulateSale}>
-                <Plus className="h-4 w-4 mr-2" /> Simular Venda
-              </Button>
             </CardHeader>
             <CardContent>
               <Table>
@@ -149,7 +254,7 @@ export default function Reports() {
                     <TableHead className="text-right">Receita</TableHead>
                     <TableHead className="text-right">Custo Variável</TableHead>
                     <TableHead className="text-right">Lucro Bruto</TableHead>
-                    <TableHead className="text-right">Margem Real</TableHead>
+                    <TableHead className="text-right">Margem Bruta</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -182,82 +287,6 @@ export default function Reports() {
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
-
-        <TabsContent value="costs" className="space-y-4 animate-fade-in-up">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Custos Fixos Mensais</CardTitle>
-                <CardDescription>Insira as despesas operacionais da sua cozinha.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <Label>Aluguel</Label>
-                  <Input
-                    type="number"
-                    value={costsForm.rent}
-                    onChange={(e) => setCostsForm({ ...costsForm, rent: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Energia</Label>
-                  <Input
-                    type="number"
-                    value={costsForm.energy}
-                    onChange={(e) => setCostsForm({ ...costsForm, energy: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Gás</Label>
-                  <Input
-                    type="number"
-                    value={costsForm.gas}
-                    onChange={(e) => setCostsForm({ ...costsForm, gas: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Mão de Obra</Label>
-                  <Input
-                    type="number"
-                    value={costsForm.labor}
-                    onChange={(e) => setCostsForm({ ...costsForm, labor: Number(e.target.value) })}
-                  />
-                </div>
-                <Button className="w-full mt-2" onClick={handleSaveCosts}>
-                  Salvar Custos
-                </Button>
-              </CardContent>
-            </Card>
-            <Card className="bg-slate-50 border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-slate-800">Impacto no Produto (Rateio)</CardTitle>
-                <CardDescription>
-                  Custo fixo diluído pelo volume de vendas atual ({totalVolumeAll} un).
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div>
-                  <div className="text-sm text-slate-500 mb-1">Custo Fixo Total</div>
-                  <div className="text-3xl font-bold text-slate-800">
-                    {formatCurrency(totalFixedCosts)}
-                  </div>
-                </div>
-                <div className="p-4 bg-white rounded-lg border border-indigo-100 shadow-sm">
-                  <div className="text-sm text-indigo-600 font-medium mb-1">
-                    Custo Fixo por Unidade Vendida
-                  </div>
-                  <div className="text-4xl font-black text-indigo-700">
-                    {formatCurrency(fixedCostPerUnit)}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2">
-                    Para manter a saúde do negócio com o volume atual, cada produto vendido precisa
-                    cobrir no mínimo este valor em lucro bruto.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
       </Tabs>
     </div>

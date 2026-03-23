@@ -8,11 +8,12 @@ import {
   ArrowRight,
   Award,
   Box,
-  AlertTriangle,
+  ShoppingCart,
 } from 'lucide-react'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { Link } from 'react-router-dom'
+import { Badge } from '@/components/ui/badge'
 
 export default function Index() {
   const { recipes, sales, ingredients, getRecipeCost } = useAppStore()
@@ -29,6 +30,37 @@ export default function Index() {
 
   const topVolume = [...salesStats].sort((a, b) => b.totalVolume - a.totalVolume).slice(0, 5)
   const topProfit = [...salesStats].sort((a, b) => b.profit - a.profit).slice(0, 5)
+
+  // Consumo Dashboard Data
+  const ingredientConsumption: Record<
+    string,
+    { name: string; value: number; vol: number; unit: string }
+  > = {}
+  ingredients.forEach((i) => {
+    ingredientConsumption[i.id] = { name: i.name, value: 0, vol: 0, unit: i.unit }
+  })
+
+  sales.forEach((sale) => {
+    const recipe = recipes.find((r) => r.id === sale.recipeId)
+    if (recipe) {
+      const multiplier = sale.quantity / recipe.yield
+      recipe.items.forEach((item) => {
+        if (ingredientConsumption[item.ingredientId]) {
+          const ing = ingredients.find((i) => i.id === item.ingredientId)
+          if (ing) {
+            const qtyUsed = item.qty * multiplier * (1 + (ing.wasteFactor || 0) / 100)
+            ingredientConsumption[item.ingredientId].vol += qtyUsed
+            ingredientConsumption[item.ingredientId].value += qtyUsed * ing.cost
+          }
+        }
+      })
+    }
+  })
+
+  const topIngredients = Object.values(ingredientConsumption)
+    .filter((i) => i.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 10)
 
   const chartData = recipes.map((r) => ({
     name: r.name,
@@ -48,6 +80,7 @@ export default function Index() {
     (i) => i.history.length > 1 && i.cost > i.history[i.history.length - 2] * 1.1,
   ).length
   const stockAlerts = ingredients.filter((i) => i.stock <= i.minStock).length
+  const wasteAlerts = ingredients.filter((i) => i.wasteFactor >= 15)
 
   return (
     <div className="space-y-6">
@@ -71,19 +104,21 @@ export default function Index() {
             <AlertCircle className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-800">{priceAlerts + stockAlerts}</div>
-            <div className="flex gap-2 mt-1">
+            <div className="text-2xl font-bold text-slate-800">
+              {priceAlerts + stockAlerts + wasteAlerts.length}
+            </div>
+            <div className="flex flex-wrap gap-1 mt-1">
               {priceAlerts > 0 && (
                 <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded">
                   {priceAlerts} custos em alta
                 </span>
               )}
-              {stockAlerts > 0 && (
+              {wasteAlerts.length > 0 && (
                 <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
-                  {stockAlerts} estoques baixos
+                  {wasteAlerts.length} perdas altas
                 </span>
               )}
-              {priceAlerts === 0 && stockAlerts === 0 && (
+              {priceAlerts === 0 && stockAlerts === 0 && wasteAlerts.length === 0 && (
                 <span className="text-xs text-slate-500">Tudo normal</span>
               )}
             </div>
@@ -120,70 +155,95 @@ export default function Index() {
       </div>
 
       <div
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in-up"
+        className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fade-in-up"
         style={{ animationDelay: '400ms' }}
       >
-        <Card>
+        <Card className="lg:col-span-8">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Box className="h-5 w-5 text-indigo-500" /> Top Volume de Vendas
+              <ShoppingCart className="h-5 w-5 text-indigo-500" /> Dashboard de Consumo (Top 10
+              Insumos)
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {topVolume.map((item, idx) => (
+              {topIngredients.map((item, idx) => (
                 <div
-                  key={item.id}
+                  key={idx}
                   className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0"
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-bold text-slate-300 w-4">{idx + 1}</span>
                     <div>
                       <p className="font-medium text-slate-800">{item.name}</p>
-                      <p className="text-xs text-slate-500">{item.totalVolume} unid. vendidas</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-semibold text-slate-800">
-                      {formatCurrency(item.totalRevenue)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Award className="h-5 w-5 text-emerald-500" /> Top Lucratividade
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {topProfit.map((item, idx) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between border-b last:border-0 pb-3 last:pb-0"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-slate-300 w-4">{idx + 1}</span>
-                    <div>
-                      <p className="font-medium text-slate-800">{item.name}</p>
-                      <p className="text-xs text-emerald-600">
-                        Margem: {formatPercent(item.margin)}
+                      <p className="text-xs text-slate-500">
+                        Volume consumido: {item.vol.toFixed(2)} {item.unit}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-semibold text-emerald-600">+{formatCurrency(item.profit)}</p>
+                    <p className="font-semibold text-red-500">{formatCurrency(item.value)}</p>
                   </div>
                 </div>
               ))}
+              {topIngredients.length === 0 && (
+                <p className="text-sm text-slate-500 py-4 text-center">
+                  Nenhum consumo registrado.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
+
+        <div className="lg:col-span-4 space-y-6">
+          <Card className="bg-amber-50 border-amber-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-amber-800 text-md flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" /> Alertas de Perda
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {wasteAlerts.map((w) => (
+                  <div
+                    key={w.id}
+                    className="flex justify-between items-center bg-white p-2 rounded border border-amber-100 shadow-sm"
+                  >
+                    <span className="text-sm font-medium text-slate-700">{w.name}</span>
+                    <Badge variant="destructive" className="bg-amber-500">
+                      {w.wasteFactor}% Fator Perda
+                    </Badge>
+                  </div>
+                ))}
+                {wasteAlerts.length === 0 && (
+                  <p className="text-xs text-amber-600/70 text-center">
+                    Nenhum alerta de fator de perda elevado.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Award className="h-5 w-5 text-emerald-500" /> Top Lucratividade
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {topProfit.map((item, idx) => (
+                  <div key={item.id} className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-800 truncate pr-2">{item.name}</span>
+                    <span className="font-semibold text-emerald-600">
+                      +{formatCurrency(item.profit)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <div

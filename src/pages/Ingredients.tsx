@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer } from 'recharts'
 import {
@@ -47,7 +48,8 @@ import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 
 export default function Ingredients() {
-  const { ingredients, simulateOCR, commitOCRData, updateIngredientStock } = useAppStore()
+  const { ingredients, suppliers, simulateOCR, commitOCRData, updateIngredientStock } =
+    useAppStore()
   const { toast } = useToast()
   const [searchTerm, setSearchTerm] = useState('')
   const [isScanning, setIsScanning] = useState(false)
@@ -121,6 +123,7 @@ export default function Ingredients() {
         'Estoque',
         'Min Estoque',
         'Unidade',
+        'Fator Perda',
         'Última Atualização',
       ],
       ingredients.map((i) => [
@@ -130,6 +133,7 @@ export default function Ingredients() {
         i.stock,
         i.minStock,
         i.unit,
+        i.wasteFactor,
         i.lastUpdated,
       ]),
     )
@@ -194,6 +198,7 @@ export default function Ingredients() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Categoria</TableHead>
                 <TableHead className="text-right">Custo Atual</TableHead>
+                <TableHead className="text-right">Perda</TableHead>
                 <TableHead className="text-right">Estoque</TableHead>
                 <TableHead className="text-center">Unidade</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
@@ -236,6 +241,7 @@ export default function Ingredients() {
                     <TableCell className="text-right font-mono font-semibold text-slate-700">
                       {formatCurrency(ing.cost)}
                     </TableCell>
+                    <TableCell className="text-right text-slate-500">{ing.wasteFactor}%</TableCell>
                     <TableCell className="text-right">
                       <div className="flex flex-col items-end">
                         <span
@@ -257,7 +263,7 @@ export default function Ingredients() {
                           size="icon"
                           className="text-slate-400 hover:text-primary"
                           onClick={() => setSelectedIngredient(ing)}
-                          title="Histórico de Preço"
+                          title="Analisar"
                         >
                           <LineChartIcon className="h-4 w-4" />
                         </Button>
@@ -288,36 +294,92 @@ export default function Ingredients() {
         open={!!selectedIngredient}
         onOpenChange={(open) => !open && setSelectedIngredient(null)}
       >
-        <DrawerContent className="h-[60vh]">
+        <DrawerContent className="h-[70vh]">
           <DrawerHeader>
-            <DrawerTitle>Histórico de Preço: {selectedIngredient?.name}</DrawerTitle>
+            <DrawerTitle>Análise de Insumo: {selectedIngredient?.name}</DrawerTitle>
           </DrawerHeader>
-          <div className="p-4 h-full pb-10">
-            <ChartContainer
-              config={{ price: { label: 'Preço', color: 'hsl(var(--primary))' } }}
-              className="h-full w-full"
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                  <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis
-                    fontSize={12}
-                    tickFormatter={(v) => `R$${v}`}
-                    tickLine={false}
-                    axisLine={false}
-                    domain={['auto', 'auto']}
-                  />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Line
-                    type="monotone"
-                    dataKey="price"
-                    stroke="var(--color-price)"
-                    strokeWidth={3}
-                    dot={{ r: 4, strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </ChartContainer>
+          <div className="px-4 h-full pb-10">
+            <Tabs defaultValue="price" className="h-full flex flex-col">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="price">Histórico de Preço</TabsTrigger>
+                <TabsTrigger value="suppliers">Fornecedores (Cotação)</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="price" className="flex-1 mt-4">
+                <ChartContainer
+                  config={{ price: { label: 'Preço', color: 'hsl(var(--primary))' } }}
+                  className="h-full w-full min-h-[300px]"
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 20, right: 20, bottom: 20, left: 0 }}
+                    >
+                      <XAxis dataKey="month" fontSize={12} tickLine={false} axisLine={false} />
+                      <YAxis
+                        fontSize={12}
+                        tickFormatter={(v) => `R$${v}`}
+                        tickLine={false}
+                        axisLine={false}
+                        domain={['auto', 'auto']}
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Line
+                        type="monotone"
+                        dataKey="price"
+                        stroke="var(--color-price)"
+                        strokeWidth={3}
+                        dot={{ r: 4, strokeWidth: 2 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </ChartContainer>
+              </TabsContent>
+
+              <TabsContent value="suppliers" className="mt-4">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center bg-slate-50 p-3 rounded border">
+                    <span className="text-sm font-medium text-slate-700">Preço Atual Base:</span>
+                    <span className="text-lg font-bold text-primary">
+                      {formatCurrency(selectedIngredient?.cost || 0)}/{selectedIngredient?.unit}
+                    </span>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Fornecedor</TableHead>
+                        <TableHead>Data da Cotação</TableHead>
+                        <TableHead className="text-right">Preço Unitário</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedIngredient?.supplierHistory.map((sh, i) => {
+                        const sup = suppliers.find((s) => s.id === sh.supplierId)
+                        return (
+                          <TableRow key={i}>
+                            <TableCell className="font-medium">
+                              {sup?.name || 'Desconhecido'}
+                            </TableCell>
+                            <TableCell>{formatDate(sh.date)}</TableCell>
+                            <TableCell className="text-right font-semibold text-slate-700">
+                              {formatCurrency(sh.price)}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                      {(!selectedIngredient?.supplierHistory ||
+                        selectedIngredient.supplierHistory.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={3} className="text-center text-slate-400 py-4">
+                            Nenhum histórico registrado.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </DrawerContent>
       </Drawer>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAppStore, Recipe } from '@/stores/useAppStore'
-import { calculatePrice, calculateProfit, roundToPsychological, PLANS } from '@/lib/pricing'
+import { roundToPsychological } from '@/lib/pricing'
 import { formatCurrency, formatPercent } from '@/lib/format'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -10,77 +10,53 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Calculator, Store, Bike, Package } from 'lucide-react'
+import { Calculator, Store, DollarSign, Settings, Percent } from 'lucide-react'
 
 export default function Pricing() {
-  const { recipes, getRecipeCost } = useAppStore()
+  const { recipes, getRecipeCost, fixedCosts } = useAppStore()
   const [selectedRecipeId, setSelectedRecipeId] = useState<string>(recipes[0]?.id || '')
 
-  const [margin, setMargin] = useState(25) // 25% target margin
-  const [fixedFees, setFixedFees] = useState(2.5) // Packaging etc
-  const [discount, setDiscount] = useState(0) // Coupon
-  const [usePsychological, setUsePsychological] = useState(true)
+  // Custom Calculator States
+  const [margin, setMargin] = useState(25) // m
+  const [appFee, setAppFee] = useState(12) // t_app
+  const [cardFee, setCardFee] = useState(2.5) // k_card
+  const [discount, setDiscount] = useState(0) // d
+
+  const [pkgCost, setPkgCost] = useState(1.5) // E
+  const [fixedAppCost, setFixedAppCost] = useState(0) // F_app
+  const [deliveryCost, setDeliveryCost] = useState(0) // F_delivery
+
+  // Fixed Costs Allocation
+  const [allocationType, setAllocationType] = useState<'value' | 'percent'>('percent')
+  const [allocationVal, setAllocationVal] = useState(5)
 
   const recipe = recipes.find((r) => r.id === selectedRecipeId)
-  if (!recipe) return null
+  const unitCost = recipe ? getRecipeCost(recipe) / recipe.yield : 0 // C
 
-  const unitCost = getRecipeCost(recipe) / recipe.yield
+  const totalGlobalFixed = fixedCosts.rent + fixedCosts.energy + fixedCosts.gas + fixedCosts.labor
+  const allocatedFixedCost =
+    allocationType === 'percent' ? totalGlobalFixed * (allocationVal / 100) : allocationVal
 
-  const renderPlanCard = (
-    plan: (typeof PLANS)[keyof typeof PLANS],
-    icon: React.ReactNode,
-    colorClass: string,
-  ) => {
-    let rawPrice = calculatePrice(unitCost, fixedFees, margin, plan, discount)
-    const finalPrice = usePsychological ? roundToPsychological(rawPrice) : rawPrice
-    const profit = calculateProfit(finalPrice, unitCost, fixedFees, plan, discount)
-    const actualMargin = (profit / finalPrice) * 100 || 0
+  // Markup Divisor Engine
+  // P = (C + E + F_app + F_delivery + CustosFixosRateados) / (1 - (m + t_app + k_card + d))
+  const totalDeductionsPct = (margin + appFee + cardFee + discount) / 100
+  const divisor = 1 - totalDeductionsPct
 
-    return (
-      <Card className={`overflow-hidden border-t-4 ${colorClass}`}>
-        <CardHeader className="pb-2 bg-slate-50/50">
-          <CardTitle className="text-base flex items-center gap-2 text-slate-700">
-            {icon} {plan.name}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-4 space-y-4">
-          <div>
-            <p className="text-sm text-slate-500 mb-1">Preço Sugerido</p>
-            <div className="text-3xl font-bold text-slate-800 price-ticker">
-              {formatCurrency(finalPrice)}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-sm border-t pt-3">
-            <div>
-              <p className="text-slate-500">Lucro Líquido</p>
-              <p
-                className={`font-semibold price-ticker ${profit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}
-              >
-                {formatCurrency(profit)}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-500">Margem Real</p>
-              <p
-                className={`font-semibold ${actualMargin >= margin ? 'text-emerald-600' : 'text-amber-500'}`}
-              >
-                {formatPercent(actualMargin)}
-              </p>
-            </div>
-          </div>
-
-          <div className="text-xs text-slate-400 pt-2 border-t flex justify-between">
-            <span>Taxa App: {plan.commission}%</span>
-            <span>Taxa Pag: {plan.tax}%</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
+  let suggestedPrice = 0
+  if (divisor > 0) {
+    suggestedPrice =
+      (unitCost + pkgCost + fixedAppCost + deliveryCost + allocatedFixedCost) / divisor
   }
+
+  const finalPrice = roundToPsychological(suggestedPrice)
+
+  // Real Margin Check: (Price - Costs - Fees) / Price
+  const totalMonetaryCosts = unitCost + pkgCost + fixedAppCost + deliveryCost + allocatedFixedCost
+  const totalPercentageFeesValue = finalPrice * ((appFee + cardFee + discount) / 100)
+  const netProfit = finalPrice - totalMonetaryCosts - totalPercentageFeesValue
+  const realMargin = finalPrice > 0 ? (netProfit / finalPrice) * 100 : 0
 
   return (
     <div className="space-y-6">
@@ -89,134 +65,217 @@ export default function Pricing() {
           <Calculator className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Motor de Precificação</h1>
+          <h1 className="text-2xl font-bold text-slate-800">
+            Calculadora de Precificação (Markup Divisor)
+          </h1>
           <p className="text-slate-500 text-sm">
-            Calcule o preço de venda ideal com a fórmula de Markup Divisor.
+            Fórmula dinâmica com integração de custos fixos, taxas de app e margem desejada.
           </p>
         </div>
       </div>
 
+      <Card className="bg-indigo-50/50 border-indigo-100">
+        <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center justify-between">
+          <div className="w-full md:w-1/3">
+            <Label className="text-indigo-900 mb-1 block">Selecione o Produto</Label>
+            <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId}>
+              <SelectTrigger className="bg-white border-indigo-200">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {recipes.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-6 w-full md:w-auto">
+            <div>
+              <p className="text-xs text-indigo-600 font-medium">Custo Unitário Base (C)</p>
+              <p className="text-2xl font-bold text-indigo-900">{formatCurrency(unitCost)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Controls Sidebar */}
-        <div className="lg:col-span-4 space-y-6">
-          <Card>
-            <CardContent className="p-5 space-y-6">
-              <div className="space-y-2">
-                <Label>Selecione o Produto</Label>
-                <Select value={selectedRecipeId} onValueChange={setSelectedRecipeId}>
-                  <SelectTrigger className="w-full bg-white">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recipes.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                <p className="text-sm text-slate-500">Custo Unitário Base</p>
-                <p className="text-xl font-bold text-slate-800">{formatCurrency(unitCost)}</p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label>Margem Desejada</Label>
-                    <span className="text-sm font-medium text-primary">{margin}%</span>
-                  </div>
-                  <Slider
-                    value={[margin]}
-                    onValueChange={(v) => setMargin(v[0])}
-                    max={60}
-                    step={1}
-                    className="py-2"
+        {/* Painel de Variáveis */}
+        <div className="lg:col-span-8 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader className="pb-3 border-b bg-slate-50/50">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Percent className="h-4 w-4" /> Variáveis Percentuais (%)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="space-y-1">
+                  <Label className="text-emerald-700">Margem de Lucro Desejada (m)</Label>
+                  <Input
+                    type="number"
+                    value={margin}
+                    onChange={(e) => setMargin(Number(e.target.value))}
+                    className="border-emerald-200 focus-visible:ring-emerald-500"
                   />
                 </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <Label>Desconto / Cupom</Label>
-                    <span className="text-sm font-medium text-amber-600">{discount}%</span>
-                  </div>
-                  <Slider
-                    value={[discount]}
-                    onValueChange={(v) => setDiscount(v[0])}
-                    max={30}
-                    step={1}
-                    className="py-2"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Custos Fixos (Embalagem, etc)</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                      R$
-                    </span>
-                    <input
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-slate-600">Taxa do App (t_app)</Label>
+                    <Input
                       type="number"
-                      value={fixedFees}
-                      onChange={(e) => setFixedFees(Number(e.target.value))}
-                      className="flex h-10 w-full rounded-md border border-input bg-white px-3 py-2 text-sm pl-9 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      value={appFee}
+                      onChange={(e) => setAppFee(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-slate-600">Taxa de Cartão (k_card)</Label>
+                    <Input
+                      type="number"
+                      value={cardFee}
+                      onChange={(e) => setCardFee(Number(e.target.value))}
                     />
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <Label htmlFor="rounding" className="cursor-pointer">
-                    Preço Psicológico (X,90)
-                  </Label>
-                  <Switch
-                    id="rounding"
-                    checked={usePsychological}
-                    onCheckedChange={setUsePsychological}
+                <div className="space-y-1">
+                  <Label className="text-amber-600">Desconto/Cupom Ofertado (d)</Label>
+                  <Input
+                    type="number"
+                    value={discount}
+                    onChange={(e) => setDiscount(Number(e.target.value))}
                   />
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="pb-3 border-b bg-slate-50/50">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <DollarSign className="h-4 w-4" /> Variáveis Fixas (R$)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-4">
+                  <div className="space-y-1">
+                    <Label className="text-slate-600">Embalagem (E)</Label>
+                    <Input
+                      type="number"
+                      value={pkgCost}
+                      onChange={(e) => setPkgCost(Number(e.target.value))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-slate-600">Custo Fixo App</Label>
+                      <Input
+                        type="number"
+                        value={fixedAppCost}
+                        onChange={(e) => setFixedAppCost(Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-slate-600">Custo Entrega</Label>
+                      <Input
+                        type="number"
+                        value={deliveryCost}
+                        onChange={(e) => setDeliveryCost(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-blue-100 bg-blue-50/30">
+                <CardHeader className="pb-3 border-b bg-blue-50/50">
+                  <CardTitle className="text-base flex items-center gap-2 text-blue-800">
+                    <Settings className="h-4 w-4" /> Rateio de Custos Fixos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 pt-4">
+                  <p className="text-xs text-slate-500">
+                    Custo Fixo Total Global: {formatCurrency(totalGlobalFixed)}/mês
+                  </p>
+                  <div className="flex gap-2">
+                    <Select
+                      value={allocationType}
+                      onValueChange={(v: 'value' | 'percent') => setAllocationType(v)}
+                    >
+                      <SelectTrigger className="w-[120px] bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percent">% do Total</SelectItem>
+                        <SelectItem value="value">Valor Fixo (R$)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type="number"
+                      value={allocationVal}
+                      onChange={(e) => setAllocationVal(Number(e.target.value))}
+                      className="flex-1 bg-white"
+                    />
+                  </div>
+                  <p className="text-sm font-medium text-blue-700 text-right">
+                    Alocado: {formatCurrency(allocatedFixedCost)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
 
-        {/* Results Grid */}
-        <div className="lg:col-span-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {renderPlanCard(
-              PLANS.LOCAL,
-              <Store className="h-5 w-5 text-emerald-500" />,
-              'border-emerald-500',
-            )}
-            {renderPlanCard(
-              PLANS.IFOOD_BASIC,
-              <Package className="h-5 w-5 text-red-500" />,
-              'border-red-500',
-            )}
-            {renderPlanCard(
-              PLANS.IFOOD_DELIVERY,
-              <Bike className="h-5 w-5 text-amber-500" />,
-              'border-amber-500',
-            )}
-          </div>
+        {/* Resultado */}
+        <div className="lg:col-span-4">
+          <Card className="sticky top-24 overflow-hidden border-2 border-primary shadow-xl">
+            <div className="bg-primary p-6 text-white text-center">
+              <p className="text-primary-foreground/80 font-medium mb-2">Preço Sugerido Final</p>
+              <div className="text-5xl font-black tracking-tight">{formatCurrency(finalPrice)}</div>
+              {divisor <= 0 && (
+                <p className="text-xs text-red-200 mt-2">Erro: Deduções excedem 100%</p>
+              )}
+            </div>
+            <CardContent className="p-6 space-y-6">
+              <div className="flex justify-between items-end border-b pb-4">
+                <div>
+                  <p className="text-sm text-slate-500">Lucro Líquido</p>
+                  <p
+                    className={`text-2xl font-bold ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`}
+                  >
+                    {formatCurrency(netProfit)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-slate-500">Margem Real</p>
+                  <p
+                    className={`text-2xl font-bold ${realMargin >= margin ? 'text-emerald-600' : 'text-amber-500'}`}
+                  >
+                    {formatPercent(realMargin)}
+                  </p>
+                </div>
+              </div>
 
-          <Card className="mt-6 bg-indigo-50 border-indigo-100">
-            <CardContent className="p-6">
-              <h3 className="font-semibold text-indigo-900 mb-2">
-                Entendendo o Cálculo (Markup Divisor)
-              </h3>
-              <p className="text-sm text-indigo-700 leading-relaxed">
-                A fórmula utilizada garante que a margem desejada incida sobre o{' '}
-                <strong>preço final de venda</strong>, e não sobre o custo. Se o custo subir, o
-                preço é recalculado automaticamente para proteger sua margem.
-                <br />
-                <br />
-                <code className="bg-indigo-100 px-2 py-1 rounded text-indigo-800 font-mono text-xs">
-                  Preço = (Custo Produto + Custo Fixo) / (1 - (Margem% + TaxaApp% + TaxaPag% +
-                  Desconto%))
-                </code>
-              </p>
+              <div className="space-y-2 text-sm text-slate-600">
+                <div className="flex justify-between">
+                  <span>Custo Produto (C):</span> <span>{formatCurrency(unitCost)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Rateio Fixo + Extras:</span>{' '}
+                  <span>
+                    {formatCurrency(pkgCost + fixedAppCost + deliveryCost + allocatedFixedCost)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-red-500">
+                  <span>Taxas ({totalDeductionsPct * 100 - margin}%):</span>{' '}
+                  <span>-{formatCurrency(totalPercentageFeesValue)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t">
+                <p className="text-[10px] text-slate-400 font-mono text-center">
+                  P = (C + E + F_app + F_del + C_fix) / (1 - (m + t_app + k_card + d))
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>
